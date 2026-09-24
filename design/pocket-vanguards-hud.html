@@ -185,6 +185,12 @@ p{line-height:1.5;margin:0;max-width:72ch;color:#d8d0c8}
 .obj{position:absolute;left:0;top:14px;width:430px;height:58px;background:rgba(8,6,7,.85);clip-path:polygon(0 0,100% 0,calc(100% - 22px) 100%,0 100%);padding:10px 18px;border-left:4px solid var(--red)}
 .obj .cap{color:var(--gold);font-size:10px}
 .obj b{display:block;margin-top:4px;font:700 16px/1.1 var(--body)}
+.obj{transition:height var(--d-mid) var(--e-out)}
+.obj .ql{display:none;margin-top:10px;gap:6px;flex-direction:column;font:500 14px/1.2 var(--body);color:var(--dim)}
+.obj .ql span::before{content:"";display:inline-block;width:7px;height:7px;margin-right:8px;background:var(--mute);transform:rotate(45deg)}
+.obj .ql span.done{text-decoration:line-through}
+.obj.open{height:168px}
+.obj.open .ql{display:flex}
 .side{position:absolute;left:0;top:190px;display:flex;flex-direction:column;gap:10px;z-index:5}
 .sbtn{appearance:none;border:0;cursor:pointer;position:relative;width:86px;height:78px;padding:0;background:var(--gold);clip-path:polygon(0 0,100% 10px,100% calc(100% - 10px),0 100%);transition:width var(--d-mid) var(--e-out)}
 .sbtn>span{position:absolute;inset:2px 2px 2px 0;clip-path:inherit;background:linear-gradient(160deg,#1b1417,#0b090a);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;color:var(--bone)}
@@ -459,11 +465,10 @@ ul.tree ul{padding-left:18px}
 
     <!-- ============================================== PHONE -->
     <section class="screen" id="phone">
-      <div class="obj"><span class="cap">Objetivo</span><b>Encontrar o Nico no Círculo de Pedra</b></div>
+      <div class="obj"><span class="cap">Objetivo</span><b>Encontrar o Nico no Círculo de Pedra</b><div class="ql"><span class="done">Falar com a Mina no laboratório</span><span>Atravessar a Floresta das Lanternas</span><span>Capturar 1 Eco do tipo Terra (0/1)</span></div></div>
       <nav class="side" id="side" aria-label="HUD lateral">
         <button class="sbtn hot" data-a="phone" aria-label="Abrir celular (M)"><span><i class="dot"></i><span class="kb">M</span><svg id="icPhone"></svg><em>Celular</em></span></button>
-        <button class="sbtn" data-a="fighters" aria-label="Fighters (F)"><span><span class="kb">F</span><svg data-ic="fighters"></svg><em>Equipe</em></span></button>
-        <button class="sbtn" data-a="bag" aria-label="Mochila (B)"><span><span class="kb">B</span><svg data-ic="bag"></svg><em>Mochila</em></span></button>
+        <button class="sbtn" data-a="quest" aria-label="Missões (J)"><span><span class="kb">J</span><svg data-ic="quest"></svg><em>Missões</em></span></button>
       </nav>
       <div class="phone" id="ph">
         <div class="pbody"></div>
@@ -605,7 +610,7 @@ ul.tree ul{padding-left:18px}
           <tr><td>Slot direto</td><td>clique no slot</td><td>1–4</td><td>—</td></tr>
           <tr><td>Filtro de tipo</td><td>chip</td><td>Q / E</td><td>LB / RB</td></tr>
           <tr><td>Voltar / cancelar troca</td><td>botão Voltar</td><td>Esc</td><td>B</td></tr>
-          <tr><td>Abrir celular</td><td>aba lateral</td><td>M</td><td>Select / View</td></tr>
+          <tr><td>Abrir celular</td><td>aba lateral</td><td>M</td><td>Select / View</td></tr><tr><td>Missões</td><td>aba lateral</td><td>J</td><td>—</td></tr>
         </table>
         <p class="note">Alvos de toque têm no mínimo 48 px de altura no celular. Com controle, o foco começa no slot 1; soltar o dedo nunca confirma algo que não estava em foco.</p>
       </div>
@@ -1061,6 +1066,7 @@ const ICON = {
   bag: '<path d="M8 8V6a5 5 0 0 1 10 0v2" fill="none" stroke="#fff" stroke-width="2.2"/><path d="M4 8h18l-1.5 15h-15z" fill="#fff"/><rect x="10" y="12" width="6" height="4" fill="#0b090a"/>',
   profile: '<rect x="2" y="5" width="22" height="16" rx="1.5" fill="none" stroke="#fff" stroke-width="2.2"/><circle cx="9" cy="12" r="2.8" fill="#fff"/><path d="M4.5 19a4.5 4.5 0 0 1 9 0z" fill="#fff"/><path d="M16 10h5M16 14h5M16 18h3" stroke="#fff" stroke-width="1.8" stroke-linecap="round"/><path d="M20 2l1.2 2.4" stroke="#e3182f" stroke-width="2"/>',
   settings: '<path d="M13 2.5l2 2.6 3.2-.6.6 3.2 2.7 2-1.6 2.8 1.6 2.8-2.7 2-.6 3.2-3.2-.6-2 2.6-2-2.6-3.2.6-.6-3.2-2.7-2 1.6-2.8L4.6 9.7l2.7-2 .6-3.2 3.2.6z" fill="#fff"/><circle cx="13" cy="13" r="3.4" fill="#0b090a"/><path d="M13 9.6v6.8" stroke="#e3182f" stroke-width="1.6" transform="rotate(35 13 13)"/>',
+  quest: '<path d="M6 3h11l3 3v17H6z" fill="#fff"/><path d="M9 9h8M9 13h8M9 17h5" stroke="#0b090a" stroke-width="1.8" stroke-linecap="round"/><path d="M3 5l2.5 2.5L3 10" fill="none" stroke="#e3182f" stroke-width="2.2" stroke-linecap="round"/>',
   map: '<path d="M3 6l6-3 8 3 6-3v17l-6 3-8-3-6 3z" fill="none" stroke="#fff" stroke-width="2.2" stroke-linejoin="round"/><path d="M9 3v17M17 6v17" stroke="#fff" stroke-width="1.6"/><circle cx="13" cy="11" r="2" fill="#e3182f"/>',
   capture: '<circle cx="13" cy="13" r="10" fill="#fff"/><path d="M3 13h20" stroke="#0b090a" stroke-width="2.4"/><path d="M3 13a10 10 0 0 1 20 0" fill="#e3182f"/><circle cx="13" cy="13" r="3.6" fill="#fff" stroke="#0b090a" stroke-width="2.2"/><path d="M8 4.5l2 1.6M18 4.5l-2 1.6" stroke="#fff" stroke-width="1.6" stroke-linecap="round"/>',
   phone: '<rect x="7" y="2" width="12" height="22" rx="2.5" fill="none" stroke="#fff" stroke-width="2.2"/><path d="M11 5h4" stroke="#fff" stroke-width="1.8" stroke-linecap="round"/><path d="M10 13l3-4 3 4-3 4z" fill="#e3182f"/>',
@@ -1356,6 +1362,7 @@ function appScreen(k) {
 $('#side').addEventListener('click', (e) => {
   const b = e.target.closest('.sbtn'); if (!b) return;
   if (b.dataset.a === 'phone') { phoneOn ? closePhoneAll() : phoneOpen(); }
+  else if (b.dataset.a === 'quest') { const o = $('.obj'); o.classList.toggle('open'); b.classList.toggle('hot', o.classList.contains('open')); S.open(); }
   else { if (!phoneOn) phoneOpen(); setTimeout(() => openApp(b.dataset.a), RM() ? 0 : 420); }
 });
 $('#apps').addEventListener('click', (e) => { const a = e.target.closest('.app'); if (a) openApp(a.dataset.app); });
@@ -1364,6 +1371,7 @@ setInterval(() => { const d = new Date(), s = String(d.getHours()).padStart(2, '
 function phoneKey(k) {
   if (appOpen) { if (appOpen === 'ecodex' && dxKey(k)) return; if (k === 'back') closeApp(); return; }
   if (k === 'menu') { phoneOn ? closePhoneAll() : phoneOpen(); return; }
+  if (k === 'quest') { $('.sbtn[data-a="quest"]').click(); return; }
   if (!phoneOn) { if (k === 'ok') phoneOpen(); return; }
   const n = APPS.length;
   if (k === 'right') appFocus = (appFocus + 1) % n; else if (k === 'left') appFocus = (appFocus - 1 + n) % n;
@@ -1590,7 +1598,7 @@ function route(k) {
   else if (screen === 'dx') { if (!dxKey(k) && k === 'back') S.back(); }
   else if (screen === 'bt') { if (k === 'back') $('#caps').classList.remove('on'); if (k === 'capture') $('.cap5').click(); }
 }
-const KEYS = { ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right', Enter: 'ok', ' ': 'ok', Escape: 'back', Backspace: 'back', q: 'lb', e: 'rb', Q: 'lb', E: 'rb', m: 'menu', M: 'menu', '/': 'search', c: 'capture', C: 'capture', 1: '1', 2: '2', 3: '3', 4: '4' };
+const KEYS = { ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right', Enter: 'ok', ' ': 'ok', Escape: 'back', Backspace: 'back', q: 'lb', e: 'rb', Q: 'lb', E: 'rb', m: 'menu', M: 'menu', j: 'quest', J: 'quest', '/': 'search', c: 'capture', C: 'capture', 1: '1', 2: '2', 3: '3', 4: '4' };
 document.addEventListener('keydown', (e) => {
   if (e.target.closest('input,select,textarea')) { if (e.key === 'Escape') e.target.blur(); if (!(e.target.id === 'dxq' && /Arrow(Up|Down)/.test(e.key))) return; }
   const r = vp.getBoundingClientRect(); if (r.bottom < 0 || r.top > innerHeight) return;
