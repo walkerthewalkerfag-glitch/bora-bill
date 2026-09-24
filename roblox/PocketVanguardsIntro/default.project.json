@@ -1,0 +1,12 @@
+{
+  "name": "PocketVanguardsIntro",
+  "emitLegacyScripts": false,
+  "tree": {
+    "$className": "DataModel",
+    "ReplicatedStorage": {
+      "PocketVanguardsIntro": {
+        "$path": "src"
+      }
+    }
+  }
+}
