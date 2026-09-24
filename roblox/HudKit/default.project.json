@@ -1,0 +1,12 @@
+{
+  "name": "PocketVanguardsHudKit",
+  "emitLegacyScripts": false,
+  "tree": {
+    "$className": "DataModel",
+    "ReplicatedStorage": {
+      "PVHudKit": {
+        "$path": "src"
+      }
+    }
+  }
+}

@@ -10,6 +10,17 @@
 | pv_dreamworld.wav | Trilha do mundo dos sonhos: `Looped = true`, o loop é perfeito (24 s) | 24 s |
 | pv_voices.wav | Bips de fala (Mina, Jin-Woo, Nico, Eco): 6 sílabas por voz, os trechos estão em `pv_voices_map.json` | 4,8 s |
 
+## Jeito rápido: `PVSons.luau`
+
+1. Crie um ModuleScript `PVSons` em ReplicatedStorage e cole o arquivo.
+2. Ponha os IDs em `Sons.Ids`.
+3. Use:
+   - `Sons.play("encounter")`
+   - `Sons.music("battle")` / `Sons.music("trainer")` / `Sons.stopMusic()`
+   - `Sons.say("mina", texto, label)`
+
+Ele já configura os loops e as vozes descritos abaixo.
+
 ## Voz tipo indie no Roblox
 
 1. Suba `pv_voices.wav` e crie um `Sound` com `PlaybackRegionsEnabled = true`.
