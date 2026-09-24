@@ -3,7 +3,7 @@
 | Arquivo | Uso | Duração |
 |---|---|---|
 | pv_encounter.wav | Monstro sai do mato | 2,4 s |
-| pv_trainer.wav | Começo de batalha com treinador | 3 s |
+| pv_trainer.wav | Batalha com treinador: abertura + trilha em loop | 28 s |
 | pv_starter.wav | Escolher o fighter inicial | 3 s |
 | pv_dream.wav | Golpe onírico | 3,2 s |
 | pv_dreamworld.wav | Trilha do mundo dos sonhos: `Looped = true`, o loop é perfeito (24 s) | 24 s |
@@ -16,3 +16,12 @@
 3. Ponha `PlaybackRegion = NumberRange.new(a, b)` usando o trecho da voz do personagem, e toque.
 4. Escolha a sílaba com `string.byte(letra) % 6 + 1`, assim a mesma palavra soa sempre igual.
 5. Não toque som em espaço nem em pontuação. Faça uma pausa de 180 ms em ".", "!" e "?", e de 90 ms em vírgula.
+
+## Batalha com treinador (pv_trainer.wav)
+
+A abertura continua no ritmo da batalha. No Roblox:
+- `Looped = true`
+- `PlaybackRegionsEnabled = true`
+- `LoopRegion = NumberRange.new(14.72, 27.52)`
+
+Assim a abertura toca uma vez e o groove de 8 compassos fica em loop sem emenda.

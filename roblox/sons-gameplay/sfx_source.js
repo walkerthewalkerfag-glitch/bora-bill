@@ -5,7 +5,11 @@ const DREAM_L = 24; // dream-world loop length (seconds)
 function hudRender(seconds, fn, seed) {
   const ac = new OfflineAudioContext(2, Math.ceil(seconds * HUD_SR), HUD_SR);
   fn(new PVSynth(ac, seed || 7), ac);
-  return ac.startRendering();
+  return ac.startRendering().then((buf) => {   // keep a little headroom, never clip
+    let pk = 0; for (let c = 0; c < buf.numberOfChannels; c++) { const d = buf.getChannelData(c); for (let i = 0; i < d.length; i++) pk = Math.max(pk, Math.abs(d[i])); }
+    if (pk > 0.92) for (let c = 0; c < buf.numberOfChannels; c++) { const d = buf.getChannelData(c), k = 0.92 / pk; for (let i = 0; i < d.length; i++) d[i] *= k; }
+    return buf;
+  });
 }
 
 // bell-ish music box for melodies
@@ -43,32 +47,63 @@ function kick(x, t, v) { x.tone(t, 160, 38, 0.35, { vol: v, glide: 0.12, a: 0.00
 function snare(x, t, v) { x.noise(t, 0.14, { f0: 1800, q: 0.6, vol: v, a: 0.002 }); x.tone(t, 220, 180, 0.08, { vol: v * 0.6, a: 0.002 }); }
 function tom(x, t, f, v) { x.tone(t, f * 1.5, f, 0.22, { vol: v, glide: 0.08, a: 0.002 }); x.noise(t, 0.05, { f0: 900, q: 0.8, vol: v * 0.3 }); }
 
+
+// the trainer battle keeps going after the intro: 150 BPM groove in D minor, 8 bars, loops forever
+const TR_G0 = 2.32, TR_BEAT = 0.4, TR_LOOP = 8 * 4 * TR_BEAT;   // loop region = [TR_G0 + TR_LOOP, TR_G0 + 2 * TR_LOOP]
+const TR_BASS = [73.42, 73.42, 58.27, 65.41, 73.42, 73.42, 98, 110];
+const TR_CH = [[293.66, 349.23, 440], [293.66, 349.23, 440], [233.08, 293.66, 349.23], [261.63, 329.63, 392], [293.66, 349.23, 440], [293.66, 349.23, 440], [196, 233.08, 293.66], [220, 277.18, 329.63]];
+const TR_MEL = [[[0, 0, 1.5], [1.5, 3, .5], [2, 5, 1], [3, 7, 1]], [[0, 8, 1.5], [1.5, 7, .5], [2, 5, 1], [3, 3, 1]], [[0, 5, 1], [1, 3, .5], [1.5, 2, .5], [2, -2, 2]], [[0, -2, .5], [.5, 0, .5], [1, 2, 1], [2, 3, 1], [3, 5, 1]],
+  [[0, 7, 1.5], [1.5, 5, .5], [2, 7, 1], [3, 12, 1]], [[0, 10, 1], [1, 8, 1], [2, 7, 1], [3, 5, 1]], [[0, 3, 1.5], [1.5, 5, .5], [2, 7, 1], [3, 10, 1]], [[0, 9, 2], [2, 4, 1], [3, 1, 1]]];
+function trainerGroove(x, ac, g0, cycles) {
+  const B = TR_BEAT;
+  for (let c = 0; c < cycles; c++) for (let bar = 0; bar < 8; bar++) {
+    const t0 = g0 + (c * 8 + bar) * 4 * B;
+    [0, 1.5, 2].forEach((b) => kick(x, t0 + b * B, 0.2));
+    [1, 3].forEach((b) => snare(x, t0 + b * B, 0.09));
+    if (bar === 7) [3.25, 3.5, 3.75].forEach((b, i) => tom(x, t0 + b * B, 196 - i * 30, 0.14));
+    for (let h = 0; h < 8; h++) x.noise(t0 + h * B / 2, 0.035, { ft: 'highpass', f0: 7000, vol: h % 2 ? 0.018 : 0.03, a: 0.001 });
+    const bf = TR_BASS[bar];
+    for (let e = 0; e < 8; e++) { const f = e % 4 === 3 ? bf * 2 : bf; x.tone(t0 + e * B / 2, f, f, B / 2 * 0.9, { vol: 0.08, type: "sawtooth", lp: 500, a: 0.004 }); }
+    [3.5, 0].forEach((b, k) => { if (k === 0 || bar % 2 === 0) stab(x, ac, t0 + b * B, TR_CH[bar], 0.22, 0.025, 2600); });
+    TR_MEL[bar].forEach(([b, st, len]) => { const f = 587.33 * Math.pow(2, st / 12); x.tone(t0 + b * B, f, f, len * B * 0.92, { vol: 0.045, type: 'square', lp: 2800, a: 0.006, wet: 0.2 }); });
+  }
+}
+
 const HUD_SFX = {
-  // bush rustle building up, a hard shake, then the monster pops out with a short sting
+  // wild encounter, handheld-RPG style: a soft swish in the grass, a spinning chip-tune swirl
+  // (the screen transition) and a short battle-ready fanfare. All square/triangle, gently filtered.
   encounter: [2.6, (x, ac) => {
-    rustle(x, ac, 0, [[0, 0.28, 90], [0.34, 0.22, 110], [0.62, 0.42, 220]], 0.5);
-    x.noise(0.62, 0.35, { f0: 700, f1: 300, q: 0.7, vol: 0.05 });           // branches bend
-    x.tone(1.02, 180, 520, 0.12, { vol: 0.16, glide: 0.09, lp: 1600 });     // pop out
-    x.noise(1.02, 0.08, { ft: 'highpass', f0: 2500, vol: 0.12 });
-    stab(x, ac, 1.08, [293.66, 349.23, 440, 587.33], 0.5, 0.05, 4200);
-    x.tone(1.08, 1174.66, 1174.66, 0.12, { vol: 0.07, type: 'square', lp: 3000 });
-    x.tone(1.2, 1567.98, 1567.98, 0.45, { vol: 0.06, type: 'square', lp: 3000, wet: 0.3 });
-    x.tone(1.08, 73.42, 55, 0.6, { vol: 0.3, lp: 300 });
+    x.noise(0, 0.22, { ft: 'lowpass', f0: 2200, f1: 900, vol: 0.05, a: 0.03 });
+    x.noise(0.16, 0.18, { ft: 'lowpass', f0: 2000, f1: 800, vol: 0.04, a: 0.03 });
+    const sw = [0, 3, 7, 12, 15, 19, 24, 19, 15, 12, 7, 3];
+    for (let k = 0; k < 24; k++) {
+      const f = 293.66 * Math.pow(2, (sw[k % 12] + Math.floor(k / 12) * 2) / 12);
+      x.tone(0.3 + k * 0.028, f, f, 0.05, { vol: 0.045, type: 'square', lp: 3200, a: 0.002 });
+    }
+    x.tone(0.3, 180, 900, 0.68, { vol: 0.035, type: 'triangle', glide: 0.68, a: 0.02 });
+    const T = 1.02;
+    [[0, 587.33], [0.1, 587.33], [0.2, 880], [0.34, 1174.66]].forEach(([d, f], i) => {
+      x.tone(T + d, f, f, i === 3 ? 0.6 : 0.09, { vol: 0.06, type: 'square', lp: 3600, a: 0.003, wet: i === 3 ? 0.25 : 0.05 });
+      x.tone(T + d, f / 2, f / 2, i === 3 ? 0.6 : 0.09, { vol: 0.04, type: 'triangle', a: 0.003 });
+    });
+    x.tone(T + 0.34, 146.83, 146.83, 0.6, { vol: 0.12, type: 'triangle', a: 0.004 });
+    x.noise(T + 0.34, 0.12, { ft: 'lowpass', f0: 3000, vol: 0.05, a: 0.002 });
   }],
   // trainer battle: riser, big hit, accelerating drum roll, second hit and brass climb, crash
-  trainer: [3.6, (x, ac) => {
+  trainer: [TR_G0 + 2 * TR_LOOP + 0.3, (x, ac) => {
     x.noise(0, 0.6, { f0: 400, f1: 7000, q: 0.9, vol: 0.09, a: 0.58, cut: true });
     x.tone(0, 110, 440, 0.6, { vol: 0.05, type: 'sawtooth', a: 0.55, lp: 2000 });
-    kick(x, 0.6, 0.55); snare(x, 0.6, 0.25);
+    kick(x, 0.6, 0.4); snare(x, 0.6, 0.25);
     stab(x, ac, 0.6, [146.83, 220, 293.66, 349.23], 0.55, 0.06);
     x.noise(0.6, 1.4, { ft: 'highpass', f0: 5000, vol: 0.06, a: 0.005, wet: 0.4 });
     let t = 0.95; const toms = [196, 196, 174.6, 174.6, 146.8, 146.8, 130.8, 110, 98, 87.3];
     toms.forEach((f, i) => { tom(x, t, f, 0.22); snare(x, t + 0.02, 0.06); t += 0.11 - i * 0.006; });
-    kick(x, 1.85, 0.6); snare(x, 1.85, 0.3);
+    kick(x, 1.85, 0.42); snare(x, 1.85, 0.3);
     stab(x, ac, 1.85, [174.61, 261.63, 349.23, 440], 0.4, 0.06);
     [587.33, 698.46, 880, 1174.66].forEach((f, i) => stab(x, ac, 2.05 + i * 0.09, [f / 2, f], 0.25 + (i === 3 ? 0.7 : 0), 0.035, 5000));
     x.noise(2.32, 1.2, { ft: 'highpass', f0: 4200, vol: 0.09, a: 0.004, wet: 0.5 });
     kick(x, 2.32, 0.4);
+    trainerGroove(x, ac, TR_G0, 2);
   }],
   // starter pick (approved): warm major arpeggio, sparkle, a little slime boing
   starter: [3, (x) => {

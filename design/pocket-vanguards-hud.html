@@ -391,6 +391,14 @@ ul.tree{margin:0;padding-left:18px;line-height:1.6;font-size:14px;color:#d8d0c8}
 ul.tree ul{padding-left:18px}
 .wf{width:100%;height:auto;background:#0d0b0c;border:1px solid #251e21}
 .note{font-size:13px;color:var(--dim)}
+.dragghost{z-index:45;opacity:.95;box-shadow:0 18px 40px rgba(0,0,0,.7),inset 0 0 0 2px var(--gold2);transition:none;cursor:grabbing}
+.dragsrc{opacity:.35}
+.slot.droppable>div{box-shadow:inset 0 0 0 1px rgba(245,197,66,.45)}
+.dropon{position:relative}
+.slot.dropon{background:var(--gold2);transform:translateX(6px)}
+.mv.dropon{box-shadow:inset 0 0 0 2px var(--gold2)}
+.dropon::after{content:attr(data-drop)!important;position:absolute;right:22px;top:-1px;font:700 10px/1 var(--body);letter-spacing:.14em;background:var(--gold2);color:#140f00;padding:3px 8px 2px;z-index:3}
+.mv,.slot{touch-action:pan-y}
 @media (prefers-reduced-motion:reduce){:root{--d-focus:1ms;--d-fast:1ms;--d-mid:1ms;--d-slow:1ms}}
 .rm{--d-focus:1ms;--d-fast:1ms;--d-mid:1ms;--d-slow:1ms}
 .rm *{animation-duration:1ms!important;animation-iteration-count:1!important}
@@ -406,6 +414,7 @@ ul.tree ul{padding-left:18px}
       <label><input type="checkbox" id="optMob"> Celular (19,5:9)</label>
       <label><input type="checkbox" id="optRm"> Movimento reduzido</label>
       <label><input type="checkbox" id="optSnd" checked> Sons de interface</label>
+      <button class="btn" id="lvUp" style="font-size:13px;padding:6px 14px">Simular: subir de nível</button>
     </div>
   </div>
   <div class="tabs" role="tablist" id="tabs">
@@ -445,14 +454,6 @@ ul.tree ul{padding-left:18px}
         <div class="lsth"><span>Nv</span><span>Golpe</span><span>Tipo</span><span>Poder</span><span>Prec.</span><span>PP</span></div>
         <div class="rows" id="rows" tabindex="-1"></div>
       </div></div>
-      <div class="save" id="saveState"><i></i> Conjunto salvo</div>
-      <div class="pbar">
-        <span><span class="kb">↵</span>/<span class="kb">A</span> Selecionar</span>
-        <span><span class="kb">1–4</span> Slot</span>
-        <span><span class="kb">Q</span><span class="kb">E</span>/<span class="kb">LB</span><span class="kb">RB</span> Tipo</span>
-        <span><span class="kb">Esc</span>/<span class="kb">B</span> Voltar</span>
-        <button class="btn" id="lvUp" style="font-size:13px;padding:6px 14px">Simular: subir de nível</button>
-      </div>
       <div class="learn" id="learn" role="status"><div class="pnl"><div class="in"><div class="glow"></div>
         <div class="lc">
           <span class="cap">Nível <span id="lnLv">15</span> · novo golpe aprendido</span>
@@ -505,7 +506,7 @@ ul.tree ul{padding-left:18px}
     </section>
   </div></div>
 
-  <p class="note" id="where">Tela de golpes: clique num slot (ele fica dourado, “TROCANDO”) e depois num golpe da lista. Ou o contrário. Golpes com cadeado não podem ser equipados.</p>
+  <p class="note" id="where">Tela de golpes: arraste um golpe da lista até um slot, arraste um slot até um golpe da lista, ou arraste um slot sobre outro para mudar a ordem. Também dá para clicar no slot e depois no golpe. Golpes com cadeado não podem ser equipados. No celular, segure o dedo por um instante para arrastar.</p>
 
   <!-- ============================================== ICONS -->
   <section class="panel">
@@ -606,7 +607,7 @@ ul.tree ul{padding-left:18px}
           <tr><th>Ação</th><th>Mouse / toque</th><th>Teclado</th><th>Controle</th></tr>
           <tr><td>Mover foco</td><td>passar / tocar</td><td>setas</td><td>D-pad, analógico</td></tr>
           <tr><td>Trocar coluna</td><td>—</td><td>← →</td><td>D-pad ← →</td></tr>
-          <tr><td>Selecionar / confirmar</td><td>clique / toque</td><td>Enter, Espaço</td><td>A</td></tr>
+          <tr><td>Arrastar e soltar</td><td>arrastar linha → slot, slot → linha, slot → slot (celular: segurar 0,2 s)</td><td>—</td><td>—</td></tr><tr><td>Selecionar / confirmar</td><td>clique / toque</td><td>Enter, Espaço</td><td>A</td></tr>
           <tr><td>Slot direto</td><td>clique no slot</td><td>1–4</td><td>—</td></tr>
           <tr><td>Filtro de tipo</td><td>chip</td><td>Q / E</td><td>LB / RB</td></tr>
           <tr><td>Voltar / cancelar troca</td><td>botão Voltar</td><td>Esc</td><td>B</td></tr>
@@ -943,7 +944,11 @@ const DREAM_L = 24; // dream-world loop length (seconds)
 function hudRender(seconds, fn, seed) {
   const ac = new OfflineAudioContext(2, Math.ceil(seconds * HUD_SR), HUD_SR);
   fn(new PVSynth(ac, seed || 7), ac);
-  return ac.startRendering();
+  return ac.startRendering().then((buf) => {   // keep a little headroom, never clip
+    let pk = 0; for (let c = 0; c < buf.numberOfChannels; c++) { const d = buf.getChannelData(c); for (let i = 0; i < d.length; i++) pk = Math.max(pk, Math.abs(d[i])); }
+    if (pk > 0.92) for (let c = 0; c < buf.numberOfChannels; c++) { const d = buf.getChannelData(c), k = 0.92 / pk; for (let i = 0; i < d.length; i++) d[i] *= k; }
+    return buf;
+  });
 }
 
 // bell-ish music box for melodies
@@ -981,32 +986,63 @@ function kick(x, t, v) { x.tone(t, 160, 38, 0.35, { vol: v, glide: 0.12, a: 0.00
 function snare(x, t, v) { x.noise(t, 0.14, { f0: 1800, q: 0.6, vol: v, a: 0.002 }); x.tone(t, 220, 180, 0.08, { vol: v * 0.6, a: 0.002 }); }
 function tom(x, t, f, v) { x.tone(t, f * 1.5, f, 0.22, { vol: v, glide: 0.08, a: 0.002 }); x.noise(t, 0.05, { f0: 900, q: 0.8, vol: v * 0.3 }); }
 
+
+// the trainer battle keeps going after the intro: 150 BPM groove in D minor, 8 bars, loops forever
+const TR_G0 = 2.32, TR_BEAT = 0.4, TR_LOOP = 8 * 4 * TR_BEAT;   // loop region = [TR_G0 + TR_LOOP, TR_G0 + 2 * TR_LOOP]
+const TR_BASS = [73.42, 73.42, 58.27, 65.41, 73.42, 73.42, 98, 110];
+const TR_CH = [[293.66, 349.23, 440], [293.66, 349.23, 440], [233.08, 293.66, 349.23], [261.63, 329.63, 392], [293.66, 349.23, 440], [293.66, 349.23, 440], [196, 233.08, 293.66], [220, 277.18, 329.63]];
+const TR_MEL = [[[0, 0, 1.5], [1.5, 3, .5], [2, 5, 1], [3, 7, 1]], [[0, 8, 1.5], [1.5, 7, .5], [2, 5, 1], [3, 3, 1]], [[0, 5, 1], [1, 3, .5], [1.5, 2, .5], [2, -2, 2]], [[0, -2, .5], [.5, 0, .5], [1, 2, 1], [2, 3, 1], [3, 5, 1]],
+  [[0, 7, 1.5], [1.5, 5, .5], [2, 7, 1], [3, 12, 1]], [[0, 10, 1], [1, 8, 1], [2, 7, 1], [3, 5, 1]], [[0, 3, 1.5], [1.5, 5, .5], [2, 7, 1], [3, 10, 1]], [[0, 9, 2], [2, 4, 1], [3, 1, 1]]];
+function trainerGroove(x, ac, g0, cycles) {
+  const B = TR_BEAT;
+  for (let c = 0; c < cycles; c++) for (let bar = 0; bar < 8; bar++) {
+    const t0 = g0 + (c * 8 + bar) * 4 * B;
+    [0, 1.5, 2].forEach((b) => kick(x, t0 + b * B, 0.2));
+    [1, 3].forEach((b) => snare(x, t0 + b * B, 0.09));
+    if (bar === 7) [3.25, 3.5, 3.75].forEach((b, i) => tom(x, t0 + b * B, 196 - i * 30, 0.14));
+    for (let h = 0; h < 8; h++) x.noise(t0 + h * B / 2, 0.035, { ft: 'highpass', f0: 7000, vol: h % 2 ? 0.018 : 0.03, a: 0.001 });
+    const bf = TR_BASS[bar];
+    for (let e = 0; e < 8; e++) { const f = e % 4 === 3 ? bf * 2 : bf; x.tone(t0 + e * B / 2, f, f, B / 2 * 0.9, { vol: 0.08, type: "sawtooth", lp: 500, a: 0.004 }); }
+    [3.5, 0].forEach((b, k) => { if (k === 0 || bar % 2 === 0) stab(x, ac, t0 + b * B, TR_CH[bar], 0.22, 0.025, 2600); });
+    TR_MEL[bar].forEach(([b, st, len]) => { const f = 587.33 * Math.pow(2, st / 12); x.tone(t0 + b * B, f, f, len * B * 0.92, { vol: 0.045, type: 'square', lp: 2800, a: 0.006, wet: 0.2 }); });
+  }
+}
+
 const HUD_SFX = {
-  // bush rustle building up, a hard shake, then the monster pops out with a short sting
+  // wild encounter, handheld-RPG style: a soft swish in the grass, a spinning chip-tune swirl
+  // (the screen transition) and a short battle-ready fanfare. All square/triangle, gently filtered.
   encounter: [2.6, (x, ac) => {
-    rustle(x, ac, 0, [[0, 0.28, 90], [0.34, 0.22, 110], [0.62, 0.42, 220]], 0.5);
-    x.noise(0.62, 0.35, { f0: 700, f1: 300, q: 0.7, vol: 0.05 });           // branches bend
-    x.tone(1.02, 180, 520, 0.12, { vol: 0.16, glide: 0.09, lp: 1600 });     // pop out
-    x.noise(1.02, 0.08, { ft: 'highpass', f0: 2500, vol: 0.12 });
-    stab(x, ac, 1.08, [293.66, 349.23, 440, 587.33], 0.5, 0.05, 4200);
-    x.tone(1.08, 1174.66, 1174.66, 0.12, { vol: 0.07, type: 'square', lp: 3000 });
-    x.tone(1.2, 1567.98, 1567.98, 0.45, { vol: 0.06, type: 'square', lp: 3000, wet: 0.3 });
-    x.tone(1.08, 73.42, 55, 0.6, { vol: 0.3, lp: 300 });
+    x.noise(0, 0.22, { ft: 'lowpass', f0: 2200, f1: 900, vol: 0.05, a: 0.03 });
+    x.noise(0.16, 0.18, { ft: 'lowpass', f0: 2000, f1: 800, vol: 0.04, a: 0.03 });
+    const sw = [0, 3, 7, 12, 15, 19, 24, 19, 15, 12, 7, 3];
+    for (let k = 0; k < 24; k++) {
+      const f = 293.66 * Math.pow(2, (sw[k % 12] + Math.floor(k / 12) * 2) / 12);
+      x.tone(0.3 + k * 0.028, f, f, 0.05, { vol: 0.045, type: 'square', lp: 3200, a: 0.002 });
+    }
+    x.tone(0.3, 180, 900, 0.68, { vol: 0.035, type: 'triangle', glide: 0.68, a: 0.02 });
+    const T = 1.02;
+    [[0, 587.33], [0.1, 587.33], [0.2, 880], [0.34, 1174.66]].forEach(([d, f], i) => {
+      x.tone(T + d, f, f, i === 3 ? 0.6 : 0.09, { vol: 0.06, type: 'square', lp: 3600, a: 0.003, wet: i === 3 ? 0.25 : 0.05 });
+      x.tone(T + d, f / 2, f / 2, i === 3 ? 0.6 : 0.09, { vol: 0.04, type: 'triangle', a: 0.003 });
+    });
+    x.tone(T + 0.34, 146.83, 146.83, 0.6, { vol: 0.12, type: 'triangle', a: 0.004 });
+    x.noise(T + 0.34, 0.12, { ft: 'lowpass', f0: 3000, vol: 0.05, a: 0.002 });
   }],
   // trainer battle: riser, big hit, accelerating drum roll, second hit and brass climb, crash
-  trainer: [3.6, (x, ac) => {
+  trainer: [TR_G0 + 2 * TR_LOOP + 0.3, (x, ac) => {
     x.noise(0, 0.6, { f0: 400, f1: 7000, q: 0.9, vol: 0.09, a: 0.58, cut: true });
     x.tone(0, 110, 440, 0.6, { vol: 0.05, type: 'sawtooth', a: 0.55, lp: 2000 });
-    kick(x, 0.6, 0.55); snare(x, 0.6, 0.25);
+    kick(x, 0.6, 0.4); snare(x, 0.6, 0.25);
     stab(x, ac, 0.6, [146.83, 220, 293.66, 349.23], 0.55, 0.06);
     x.noise(0.6, 1.4, { ft: 'highpass', f0: 5000, vol: 0.06, a: 0.005, wet: 0.4 });
     let t = 0.95; const toms = [196, 196, 174.6, 174.6, 146.8, 146.8, 130.8, 110, 98, 87.3];
     toms.forEach((f, i) => { tom(x, t, f, 0.22); snare(x, t + 0.02, 0.06); t += 0.11 - i * 0.006; });
-    kick(x, 1.85, 0.6); snare(x, 1.85, 0.3);
+    kick(x, 1.85, 0.42); snare(x, 1.85, 0.3);
     stab(x, ac, 1.85, [174.61, 261.63, 349.23, 440], 0.4, 0.06);
     [587.33, 698.46, 880, 1174.66].forEach((f, i) => stab(x, ac, 2.05 + i * 0.09, [f / 2, f], 0.25 + (i === 3 ? 0.7 : 0), 0.035, 5000));
     x.noise(2.32, 1.2, { ft: 'highpass', f0: 4200, vol: 0.09, a: 0.004, wet: 0.5 });
     kick(x, 2.32, 0.4);
+    trainerGroove(x, ac, TR_G0, 2);
   }],
   // starter pick (approved): warm major arpeggio, sparkle, a little slime boing
   starter: [3, (x) => {
@@ -1175,7 +1211,7 @@ function show(s) {
   $$('.tab').forEach((t) => t.setAttribute('aria-selected', t.dataset.s === s));
   $$('.screen').forEach((el) => el.classList.toggle('on', el.id === s));
   const txt = {
-    moves: 'Tela de golpes: clique num slot (ele fica dourado, “TROCANDO”) e depois num golpe da lista. Ou o contrário. Golpes com cadeado não podem ser equipados.',
+    moves: 'Tela de golpes: arraste um golpe da lista até um slot, arraste um slot até um golpe da lista, ou arraste um slot sobre outro para mudar a ordem. Também dá para clicar no slot e depois no golpe. Golpes com cadeado não podem ser equipados. No celular, segure o dedo por um instante para arrastar.',
     phone: 'Clique na aba CELULAR (ou M). Abra um app para ver a transição: o ícone cresce, o corte vermelho passa e a tela entra. Esc volta ao celular, Esc de novo guarda o celular.',
     dx: 'Ecodex: pesquise pelo nome ou número, filtre por tipo, navegue com ↑ ↓. Capturados mostram tudo; vistos mostram silhueta; desconhecidos mostram ???.',
     pf: 'Perfil do treinador: insígnias, fighters capturados, dinheiro, equipe e opções.',
@@ -1289,7 +1325,7 @@ function pickMove(id) {
   decorate(); detail(m);
   if (st.picked) toast(`Escolha o slot para ${m.n} <span class="kb">1–4</span>`);
 }
-function equip(id, i) {
+function equip(id, i, instant) {
   const m = M[id], prev = st.equip[i], other = st.equip.indexOf(id);
   const src = $(`.mv[data-id="${id}"]`), slotEl = $(`.slot[data-i="${i}"]`);
   const done = () => {
@@ -1300,9 +1336,9 @@ function equip(id, i) {
     st.focus = { zone: 'slots', i: i }; decorate();
     S.equip();
     toast(`${CHECK} Slot ${i + 1}: ${m.n} · conjunto salvo`);
-    const ss = $('#saveState'); ss.style.opacity = .4; setTimeout(() => (ss.style.opacity = 1), 200);
+    
   };
-  if (!src || !slotEl || RM()) { done(); return; }
+  if (instant || !src || !slotEl || RM()) { done(); return; }
   // the card slides into the chosen slot (FLIP between two rects in stage space)
   const k = stage.getBoundingClientRect().width / stage.offsetWidth;
   const a = src.getBoundingClientRect(), b = slotEl.getBoundingClientRect(), s0 = stage.getBoundingClientRect();
@@ -1313,8 +1349,75 @@ function equip(id, i) {
     { duration: 260, easing: 'cubic-bezier(.16,1,.3,1)' }).onfinish = () => { g.remove(); done(); };
   S.whoosh();
 }
-$('#slots').addEventListener('click', (e) => { const s = e.target.closest('.slot'); if (s) armSlot(+s.dataset.i); });
-$('#rows').addEventListener('click', (e) => { const r = e.target.closest('.mv'); if (r) pickMove(r.dataset.id); });
+$('#slots').addEventListener('click', (e) => { if (dragJustEnded) return; const s = e.target.closest('.slot'); if (s) armSlot(+s.dataset.i); });
+$('#rows').addEventListener('click', (e) => { if (dragJustEnded) return; const r = e.target.closest('.mv'); if (r) pickMove(r.dataset.id); });
+
+// ---- drag and drop: list row -> slot, slot -> list row, slot -> slot (reorder)
+let drag = null, dragJustEnded = false;
+function stagePt(e) { const r = stage.getBoundingClientRect(), k = r.width / stage.offsetWidth; return [(e.clientX - r.left) / k, (e.clientY - r.top) / k]; }
+function dropTarget(e) {
+  const el = document.elementFromPoint(e.clientX, e.clientY);
+  if (!el) return null;
+  const sl = el.closest('.slot'); if (sl) return { kind: 'slot', i: +sl.dataset.i, el: sl };
+  const mv = el.closest('.mv:not(.ghost)'); if (mv && !mv.classList.contains('lock')) return { kind: 'row', id: mv.dataset.id, el: mv };
+  return null;
+}
+function dragStart(e, from) {
+  const src = from.kind === 'row' ? $(`.mv[data-id="${from.id}"]`) : $(`.slot[data-i="${from.i}"]`);
+  const r = src.getBoundingClientRect(), k = stage.getBoundingClientRect().width / stage.offsetWidth, p = stagePt(e);
+  const g = src.cloneNode(true); g.classList.add('ghost', 'dragghost'); g.classList.remove('focus', 'armed');
+  Object.assign(g.style, { left: '0px', top: '0px', width: r.width / k + 'px', height: r.height / k + 'px', margin: 0 });
+  stage.appendChild(g);
+  drag.g = g; drag.off = [p[0] - (r.left - stage.getBoundingClientRect().left) / k, p[1] - (r.top - stage.getBoundingClientRect().top) / k];
+  src.classList.add('dragsrc'); drag.src = src; S.pick();
+  if (from.kind === 'row') $$('.slot').forEach((s) => s.classList.add('droppable'));
+}
+function dragMove(e) {
+  const p = stagePt(e); drag.g.style.transform = `translate(${p[0] - drag.off[0]}px,${p[1] - drag.off[1]}px) rotate(-2deg) scale(1.03)`;
+  $$('.dropon').forEach((el) => el.classList.remove('dropon'));
+  const t = dropTarget(e), f = drag.from;
+  const ok = t && !(t.kind === 'row' && f.kind === 'row') && !(t.kind === 'slot' && f.kind === 'slot' && t.i === f.i);
+  if (ok) { t.el.classList.add('dropon'); t.el.dataset.drop = t.kind === 'slot' ? (f.kind === 'slot' ? 'TROCAR COM SLOT ' + (t.i + 1) : 'SOLTE NO SLOT ' + (t.i + 1)) : 'COLOCAR NO SLOT ' + (f.i + 1); }
+  drag.t = ok ? t : null;
+}
+function dragEnd(e) {
+  const d = drag; drag = null;
+  if (!d.g) return;
+  dragJustEnded = true; setTimeout(() => (dragJustEnded = false), 50);
+  d.g.remove(); d.src.classList.remove('dragsrc');
+  $$('.dropon,.droppable').forEach((el) => el.classList.remove('dropon', 'droppable'));
+  const t = d.t, f = d.from;
+  st.armed = -1; st.picked = null;
+  if (!t) { S.back(); decorate(); return; }
+  if (f.kind === 'row' && t.kind === 'slot') equip(f.id, t.i, true);
+  else if (f.kind === 'slot' && t.kind === 'row') equip(t.id, f.i, true);
+  else if (f.kind === 'slot' && t.kind === 'slot') {
+    const a = st.equip[f.i]; st.equip[f.i] = st.equip[t.i]; st.equip[t.i] = a;
+    renderSlots(); renderRows(); [f.i, t.i].forEach((i) => $(`.slot[data-i="${i}"]`).classList.add('flash'));
+    S.equip(); toast(`${CHECK} Slots ${f.i + 1} e ${t.i + 1} trocados · conjunto salvo`);
+  }
+}
+function dragDown(e) {
+  if (e.button > 0) return;
+  const row = e.target.closest('.mv'), sl = e.target.closest('.slot');
+  if (!row && !sl) return;
+  if (row && row.classList.contains('lock')) return;
+  const from = row ? { kind: 'row', id: row.dataset.id } : { kind: 'slot', i: +sl.dataset.i };
+  drag = { from: from, x: e.clientX, y: e.clientY, t0: performance.now(), touch: e.pointerType !== 'mouse', id: e.pointerId, g: null };
+}
+document.addEventListener('pointerdown', (e) => { if (screen === 'moves' && e.target.closest('#moves')) dragDown(e); });
+document.addEventListener('pointermove', (e) => {
+  if (!drag || e.pointerId !== drag.id) return;
+  if (!drag.g) {
+    const dist = Math.hypot(e.clientX - drag.x, e.clientY - drag.y);
+    if (drag.touch && performance.now() - drag.t0 < 220) { if (dist > 10) drag = null; return; }   // touch: hold to drag, swipe scrolls
+    if (dist < 6) return;
+    dragStart(e, drag.from);
+  }
+  e.preventDefault(); dragMove(e);
+}, { passive: false });
+document.addEventListener('pointerup', (e) => { if (drag && e.pointerId === drag.id) dragEnd(e); });
+document.addEventListener('pointercancel', () => { if (drag && drag.g) { drag.g.remove(); drag.src.classList.remove('dragsrc'); $$('.dropon,.droppable').forEach((el) => el.classList.remove('dropon', 'droppable')); } drag = null; });
 $('#rows').addEventListener('mouseover', (e) => { if (e.target.closest('.mv')) decorate(); });
 $('#filters').addEventListener('click', (e) => {
   const b = e.target.closest('.fchip'); if (!b) return;
@@ -1600,7 +1703,7 @@ $('#tokens').innerHTML = '<tr><th>Token</th><th>Valor</th><th>Uso</th></tr>' + T
   '<tr><td><code>type</code></td><td colspan="2">Barlow Condensed 800 itálico (títulos, nomes) · Roboto Condensed 500/700 (texto, números tabulares). No Roblox: Oswald + Roboto Condensed.</td></tr>';
 
 // ================================================================== sounds section
-const SND = [['encounter', 'Monstro no mato', 'Arbusto balançando cada vez mais forte, estalo de galho, o monstro pula e um toque de alerta.'], ['trainer', 'Batalha com treinador', 'Subida, pancada com metais, virada de tambores acelerando, segunda pancada, metais subindo e prato.'], ['starter', 'Escolher fighter inicial', 'Arpejo maior quente, brilho e um “boing” de slime.'],
+const SND = [['encounter', 'Monstro no mato', 'Estilo portátil clássico: farfalhar suave no mato, o giro em chiptune da transição e uma fanfarra curta de batalha.'], ['trainer', 'Batalha com treinador', 'Subida, pancadas, virada de tambores e então a batalha continua no ritmo: 150 BPM em Ré menor, 8 compassos em loop sem fim.'], ['starter', 'Escolher fighter inicial', 'Arpejo maior quente, brilho e um “boing” de slime.'],
   ['dream', 'Golpe onírico', 'Pesadelo: drone distorcido e dissonância fechando, coração acelerando, tudo é sugado e… acorda num tranco, com grito metálico, suspiro e um sino grave.'], ['dreamworld', 'Trilha: mundo dos sonhos', 'Fmaj7 ↔ Ebmaj9, caixinha de música, ar. Loop de 24 s.']];
 $('#sounds').innerHTML = SND.map(([k, n, d]) => `<div class="snd"><button data-snd="${k}" aria-label="Tocar ${n}"><svg viewBox="0 0 24 24"><path d="M7 4l13 8-13 8z" fill="#fff"/></svg></button><div><b>${n}</b><span>${d}</span><div class="f">pv_${k}.wav</div></div></div>`).join('');
 let sndCtx, sndSrc; const cache = {};
@@ -1615,7 +1718,7 @@ async function playSnd(k, btn) {
       else cache[k] = await hudRender(HUD_SFX[k][0], HUD_SFX[k][1], 11 + k.length);
     }
     btn.style.opacity = 1;
-    const s = sndCtx.createBufferSource(); s.buffer = cache[k]; s.loop = k === 'dreamworld'; s.connect(sndCtx.destination); s.start(); sndSrc = s; btn.dataset.playing = 1;
+    const s = sndCtx.createBufferSource(); s.buffer = cache[k]; s.loop = k === 'dreamworld' || k === 'trainer'; if (k === 'trainer') { s.loopStart = TR_G0 + TR_LOOP; s.loopEnd = TR_G0 + 2 * TR_LOOP; } s.connect(sndCtx.destination); s.start(); sndSrc = s; btn.dataset.playing = 1;
   } catch (e) { btn.style.opacity = 1; }
 }
 $('#sounds').addEventListener('click', (e) => { const b = e.target.closest('[data-snd]'); if (b) playSnd(b.dataset.snd, b); });
