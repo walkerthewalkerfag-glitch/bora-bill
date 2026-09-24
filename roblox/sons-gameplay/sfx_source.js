@@ -178,3 +178,49 @@ function hudBlip(x, t, voice, i) {
   vw.forEach((F, k) => { const bp = ac.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = F; bp.Q.value = 5; const bg = ac.createGain(); bg.gain.value = k ? 0.6 : 1; o.connect(bp); bp.connect(bg); bg.connect(g); });
   x.send(g, 0.08); o.start(t); o.stop(t + v.len + 0.03);
 }
+
+// in-battle music: 168 BPM, E minor, 16 bars. Handheld-battle energy (driving bass, fast lead, stabs)
+// with a remix feel (four-on-the-floor, pumping sidechain, supersaw chords, 16th chip arps). Original melody.
+const BT_BPM = 168, BT_B = 60 / BT_BPM, BT_BARS = 16, BT_LOOP = BT_BARS * 4 * BT_B;
+const BT_CH = [['Em', 164.81, [0, 3, 7]], ['Em', 164.81, [0, 3, 7]], ['C', 130.81, [0, 4, 7]], ['D', 146.83, [0, 4, 7]], ['Em', 164.81, [0, 3, 7]], ['Em', 164.81, [0, 3, 7]], ['C', 130.81, [0, 4, 7]], ['B', 123.47, [0, 4, 7]],
+  ['Am', 110, [0, 3, 7]], ['Am', 110, [0, 3, 7]], ['Em', 164.81, [0, 3, 7]], ['Em', 164.81, [0, 3, 7]], ['C', 130.81, [0, 4, 7]], ['D', 146.83, [0, 4, 7]], ['B', 123.47, [0, 4, 7]], ['B', 123.47, [0, 4, 7]]];
+const BT_MEL = [
+  [[0, 0, .5], [.5, 3, .5], [1, 7, 1], [2, 5, .5], [2.5, 7, .5], [3, 10, .5], [3.5, 12, .5]], [[0, 14, 1.5], [1.5, 12, .5], [2, 10, 1], [3, 7, 1]],
+  [[0, 8, .5], [.5, 7, .5], [1, 8, .5], [1.5, 12, 1.5], [3, 10, .5], [3.5, 8, .5]], [[0, 10, 1], [1, 9, .5], [1.5, 10, .5], [2, 14, 2]],
+  [[0, 0, .5], [.5, 3, .5], [1, 7, 1], [2, 5, .5], [2.5, 7, .5], [3, 10, .5], [3.5, 12, .5]], [[0, 14, .5], [.5, 15, .5], [1, 17, 1], [2, 15, .5], [2.5, 14, .5], [3, 12, 1]],
+  [[0, 12, .5], [.5, 10, .5], [1, 8, 1], [2, 7, .5], [2.5, 8, .5], [3, 7, .5], [3.5, 6, .5]], [[0, 6, 2], [2, 3, 1], [3, -1, 1]],
+  [[0, 5, 1.5], [1.5, 7, .5], [2, 8, 1], [3, 12, 1]], [[0, 10, .75], [.75, 8, .75], [1.5, 7, .5], [2, 5, 2]],
+  [[0, 3, 1.5], [1.5, 5, .5], [2, 7, 1], [3, 12, 1]], [[0, 10, .5], [.5, 12, .5], [1, 15, 2], [3, 14, 1]],
+  [[0, 12, 1], [1, 8, 1], [2, 15, 1], [3, 12, 1]], [[0, 14, 1], [1, 10, 1], [2, 17, 1], [3, 14, 1]],
+  [[0, 15, .5], [.5, 14, .5], [1, 11, .5], [1.5, 6, .5], [2, 11, .5], [2.5, 14, .5], [3, 15, .5], [3.5, 18, .5]], [[0, 18, 2], [2, 15, .5], [2.5, 11, .5], [3, 6, 1]]];
+function hudBattle(x, ac) {
+  const B = BT_B, cycles = 2, total = cycles * BT_BARS * 4;
+  // sidechain bus: ducks on every kick
+  const sc = ac.createGain(); sc.gain.value = 1; x.send(sc, 0.12);
+  for (let k = 0; k < total; k++) { const t = k * B; sc.gain.setValueAtTime(0.35, t); sc.gain.linearRampToValueAtTime(1, t + B * 0.6); }
+  const saw = (t, f, dur, vol, cut, dest) => {
+    const lp = ac.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = cut; lp.Q.value = 1.2;
+    const g = ac.createGain(); x.env(g, t, 0.005, vol, t + dur); lp.connect(g); g.connect(dest);
+    [-12, 0, 12].forEach((dt) => { const o = ac.createOscillator(); o.type = 'sawtooth'; o.frequency.value = f; o.detune.value = dt; o.connect(lp); o.start(t); o.stop(t + dur + 0.03); });
+  };
+  for (let c = 0; c < cycles; c++) for (let bar = 0; bar < BT_BARS; bar++) {
+    const t0 = (c * BT_BARS + bar) * 4 * B, [, root, tri] = BT_CH[bar];
+    for (let b = 0; b < 4; b++) kick(x, t0 + b * B, 0.24);
+    [1, 3].forEach((b) => { snare(x, t0 + b * B, 0.1); x.noise(t0 + b * B, 0.09, { f0: 1400, q: 1.2, vol: 0.06, a: 0.001, wet: 0.2 }); });
+    for (let h = 0; h < 16; h++) x.noise(t0 + h * B / 4, h % 4 === 2 ? 0.12 : 0.03, { ft: 'highpass', f0: 7500, vol: h % 4 === 2 ? 0.03 : 0.014, a: 0.001 });
+    if (bar % 8 === 7) [2.5, 2.75, 3, 3.25, 3.5, 3.75].forEach((b, i) => snare(x, t0 + b * B, 0.05 + i * 0.012));
+    // octave-bounce bass (8ths)
+    for (let e = 0; e < 8; e++) { const f = root / 2 * (e % 2 ? 2 : 1); saw(t0 + e * B / 2, f, B / 2 * 0.85, 0.06, 700, sc); }
+    // supersaw chord stabs on the offbeats
+    [0.5, 1.5, 2.5, 3.5].forEach((b) => tri.forEach((st) => saw(t0 + b * B, root * 2 * Math.pow(2, st / 12), B * 0.35, 0.012, 3000, sc)));
+    // 16th chip arpeggio
+    for (let a = 0; a < 16; a++) { const st = [0, 7, 12, 7][a % 4] + tri[Math.floor(a / 4) % 3] - tri[0]; const f = root * 4 * Math.pow(2, st / 12); x.tone(t0 + a * B / 4, f, f, B / 4 * 0.7, { vol: 0.012, type: 'square', lp: 4000, a: 0.002 }); }
+    // lead: square with a little vibrato feel via two detuned voices
+    BT_MEL[bar].forEach(([b, st, len]) => {
+      const f = 659.25 * Math.pow(2, st / 12);
+      x.tone(t0 + b * B, f, f, len * B * 0.9, { vol: 0.042, type: 'square', lp: 3400, a: 0.004, wet: 0.18 });
+      x.tone(t0 + b * B, f * 1.004, f * 1.004, len * B * 0.9, { vol: 0.018, type: 'sawtooth', lp: 2600, a: 0.004 });
+    });
+    if (bar % 4 === 0) x.noise(t0, 1.2, { ft: 'highpass', f0: 5000, vol: 0.04, a: 0.002, wet: 0.4 });
+  }
+}

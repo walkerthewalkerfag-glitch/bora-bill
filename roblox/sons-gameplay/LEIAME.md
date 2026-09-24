@@ -6,6 +6,7 @@
 | pv_trainer.wav | Batalha com treinador: abertura + trilha em loop | 28 s |
 | pv_starter.wav | Escolher o fighter inicial | 3 s |
 | pv_dream.wav | Golpe onírico | 3,2 s |
+| pv_battle.wav | Música dentro da luta: `Looped = true`, o loop é perfeito | 22,9 s |
 | pv_dreamworld.wav | Trilha do mundo dos sonhos: `Looped = true`, o loop é perfeito (24 s) | 24 s |
 | pv_voices.wav | Bips de fala (Mina, Jin-Woo, Nico, Eco): 6 sílabas por voz, os trechos estão em `pv_voices_map.json` | 4,8 s |
 
