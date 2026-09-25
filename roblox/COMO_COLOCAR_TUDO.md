@@ -8,6 +8,7 @@ São 4 pacotes. Instale nesta ordem (cada um funciona sozinho, então pode parar
 | 2 | `HudKit/` | Celular e telas: Golpes, Ficha do lutador, Ecodex, Perfil |
 | 3 | `CaptureButton/` | Botão CAPTURAR da batalha com escolha de cápsula |
 | 4 | `sons-gameplay/` | Mato, treinador, inicial, golpe onírico, músicas e vozes |
+| 5 | `DomainExpansion/` | Golpe de personagem: Expansão de Domínio (Vazio Infinito) com cena de câmera |
 
 ## Antes de começar
 
@@ -71,6 +72,15 @@ Sons.music("dreamworld")
 Sons.say("mina", "Oi! Vamos pro Círculo de Pedra?", caixaDeTexto)
 ```
 
+## 5. Expansão de Domínio
+
+1. Arraste `DomainExpansion/PocketVanguardsDomain.rbxmx` para **ReplicatedStorage**.
+2. Bulk Import das 14 imagens e dos 5 sons. Cole os IDs em `PVDomain.DomainConfig`.
+3. Diga qual personagem tem o golpe: em `Config.Characters`, use o nome do modelo, ou dê o atributo `PVDomainMove = true` ao personagem.
+4. Lance com **G** ou pelo servidor: `PVDomain.CastDomain:Fire(modelo)`.
+
+Detalhes em `DomainExpansion/LEIAME.md`.
+
 ## Como fica no Explorer
 
 ```
@@ -78,7 +88,8 @@ ReplicatedStorage
 ├── PocketVanguardsIntro   (pasta da intro: PVClient, PVServer e módulos)
 ├── PVHudKit               (PVHudBoot + 9 módulos)
 ├── CaptureUI              (ModuleScript)
-└── PVSons                 (ModuleScript)
+├── PVSons                 (ModuleScript)
+└── PVDomain               (DomainServer, DomainClient e 3 módulos)
 StarterPlayer
 └── StarterPlayerScripts
     └── CaptureExample     (LocalScript: o seu código de batalha)

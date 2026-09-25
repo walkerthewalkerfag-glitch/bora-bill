@@ -1,0 +1,1336 @@
+<roblox xmlns:xmime="http://www.w3.org/2005/05/xmlmime" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://www.roblox.com/roblox.xsd" version="4"><Item class="Folder" referent="RBX1"><Properties><string name="Name">PVDomain</string></Properties><Item class="Script" referent="RBX2"><Properties><string name="Name">DomainServer</string><token name="RunContext">1</token><bool name="Disabled">false</bool><ProtectedString name="Source"><![CDATA[--!nonstrict
+-- DomainServer: valida o lançamento, trava os alvos e avisa todos os clientes (o visual roda nos clientes).
+-- Script com RunContext = Server dentro de ReplicatedStorage.PVDomain.
+--
+-- Pelo servidor (boss/NPC):   ReplicatedStorage.PVDomain.CastDomain:Fire(modeloDoNPC)
+-- Eventos para o seu jogo:    DomainStarted.Event (id, caster, targets)  ·  DomainEnded.Event (id, caster, targets)
+local Players = game:GetService("Players")
+
+local root = script.Parent
+local Config = require(root:WaitForChild("DomainConfig"))
+
+local function make(class, name)
+	local o = root:FindFirstChild(name)
+	if not o then
+		o = Instance.new(class)
+		o.Name = name
+		o.Parent = root
+	end
+	return o
+end
+local remote = make("RemoteEvent", "DomainRemote")
+local castDomain = make("BindableEvent", "CastDomain")
+local started = make("BindableEvent", "DomainStarted")
+local ended = make("BindableEvent", "DomainEnded")
+
+local active = {} -- id -> domain
+local trapped = {} -- model -> id
+local cooldown = setmetatable({}, { __mode = "k" }) -- player (or NPC model) -> os.clock() when it can cast again
+local saved = {}
+local nextId = 0
+
+local function rootPart(m)
+	return m and (m:FindFirstChild("HumanoidRootPart") or m.PrimaryPart)
+end
+local function humanoid(m)
+	return m and m:FindFirstChildOfClass("Humanoid")
+end
+local function alive(m)
+	local h = humanoid(m)
+	return m and m.Parent ~= nil and h ~= nil and h.Health > 0
+end
+
+local function findTargets(caster, center, radius)
+	local params = OverlapParams.new()
+	params.FilterType = Enum.RaycastFilterType.Exclude
+	params.FilterDescendantsInstances = { caster }
+	local seen, list = {}, {}
+	for _, part in ipairs(workspace:GetPartBoundsInRadius(center, radius, params)) do
+		local m = part:FindFirstAncestorOfClass("Model")
+		while m and not humanoid(m) do
+			m = m:FindFirstAncestorOfClass("Model")
+		end
+		if m and not seen[m] and m ~= caster and alive(m) and not trapped[m] then
+			seen[m] = true
+			local r = rootPart(m)
+			if r and (r.Position - center).Magnitude <= radius then
+				table.insert(list, m)
+			end
+		end
+	end
+	return list
+end
+
+local function stun(m, id)
+	local h, r = humanoid(m), rootPart(m)
+	saved[m] = { ws = h.WalkSpeed, jp = h.JumpPower, jh = h.JumpHeight, ar = h.AutoRotate, anchored = r and r.Anchored }
+	h.WalkSpeed = 0
+	h.JumpPower = 0
+	h.JumpHeight = 0
+	h.AutoRotate = false
+	if Config.AnchorTargets and r then
+		r.Anchored = true
+	end
+	m:SetAttribute("PVDomainTrapped", true)
+	trapped[m] = id
+end
+
+local function release(m)
+	local s = saved[m]
+	saved[m] = nil
+	trapped[m] = nil
+	if not s or not m.Parent then
+		return
+	end
+	local h, r = humanoid(m), rootPart(m)
+	if h then
+		h.WalkSpeed, h.JumpPower, h.JumpHeight, h.AutoRotate = s.ws, s.jp, s.jh, s.ar
+	end
+	if r and Config.AnchorTargets then
+		r.Anchored = s.anchored or false
+	end
+	m:SetAttribute("PVDomainTrapped", nil)
+end
+
+local function pack(d)
+	return { id = d.id, caster = d.caster, center = d.center, forward = d.forward, radius = d.radius, startAt = d.startAt, openAt = d.openAt, endAt = d.endAt }
+end
+
+local function finish(id)
+	local d = active[id]
+	if not d then
+		return
+	end
+	active[id] = nil
+	for _, c in ipairs(d.conns) do
+		c:Disconnect()
+	end
+	for _, m in ipairs(d.targets) do
+		release(m)
+	end
+	remote:FireAllClients("stop", id)
+	ended:Fire(id, d.caster, d.targets)
+end
+
+local function cast(caster)
+	if not alive(caster) or trapped[caster] or not Config.profileFor(caster) then
+		return false
+	end
+	local key = Players:GetPlayerFromCharacter(caster) or caster
+	if cooldown[key] and os.clock() < cooldown[key] then
+		return false
+	end
+	for _, d in pairs(active) do
+		if d.caster == caster then
+			return false
+		end
+	end
+	local r = rootPart(caster)
+	if not r then
+		return false
+	end
+	cooldown[key] = os.clock() + Config.Cooldown
+	nextId += 1
+	local id = nextId
+	local look = r.CFrame.LookVector
+	local flat = Vector3.new(look.X, 0, look.Z)
+	local now = workspace:GetServerTimeNow()
+	local d = {
+		id = id, caster = caster, center = r.Position, forward = flat.Magnitude > 0.01 and flat.Unit or Vector3.new(0, 0, -1), radius = Config.Radius,
+		startAt = now, openAt = now + Config.OpenTime, endAt = now + Config.OpenTime + Config.Duration, targets = {}, conns = {},
+	}
+	active[id] = d
+	if Config.AnchorCasterDuringCast and not r.Anchored then
+		r.Anchored = true
+		task.delay(Config.OpenTime + 0.7, function()
+			if r.Parent then
+				r.Anchored = false
+			end
+		end)
+	end
+	remote:FireAllClients("start", pack(d))
+	table.insert(d.conns, humanoid(caster).Died:Connect(function()
+		finish(id)
+	end))
+	table.insert(d.conns, caster.AncestryChanged:Connect(function()
+		if not caster.Parent then
+			finish(id)
+		end
+	end))
+	task.delay(Config.OpenTime, function()
+		if active[id] ~= d then
+			return
+		end
+		d.targets = findTargets(caster, d.center, d.radius)
+		for _, m in ipairs(d.targets) do
+			stun(m, id)
+		end
+		remote:FireAllClients("trap", id, d.targets)
+		started:Fire(id, caster, d.targets)
+	end)
+	task.delay(Config.OpenTime + Config.Duration, function()
+		finish(id)
+	end)
+	return true
+end
+
+remote.OnServerEvent:Connect(function(player, action)
+	if action == "cast" then
+		if Config.AllowPlayers and player.Character then
+			cast(player.Character)
+		end
+	elseif action == "sync" then
+		for _, d in pairs(active) do
+			remote:FireClient(player, "start", pack(d))
+			if #d.targets > 0 then
+				remote:FireClient(player, "trap", d.id, d.targets)
+			end
+		end
+	end
+end)
+castDomain.Event:Connect(function(model)
+	cast(model)
+end)
+Players.PlayerRemoving:Connect(function(p)
+	cooldown[p] = nil
+end)
+]]></ProtectedString></Properties></Item><Item class="Script" referent="RBX3"><Properties><string name="Name">DomainClient</string><token name="RunContext">2</token><bool name="Disabled">false</bool><ProtectedString name="Source"><![CDATA[--!nonstrict
+-- DomainClient: tecla / botão para lançar e recebe os eventos do servidor para desenhar o domínio.
+-- Script com RunContext = Client dentro de ReplicatedStorage.PVDomain.
+local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
+
+local root = script.Parent
+local Config = require(root:WaitForChild("DomainConfig"))
+local VFX = require(root:WaitForChild("DomainVFX"))
+local remote = root:WaitForChild("DomainRemote")
+local player = Players.LocalPlayer
+
+remote.OnClientEvent:Connect(function(action, a, b)
+	if action == "start" then
+		VFX.start(a)
+	elseif action == "trap" then
+		VFX.trap(a, b)
+	elseif action == "stop" then
+		VFX.stop(a)
+	end
+end)
+remote:FireServer("sync") -- entrou no meio de um domínio? desenha também
+
+if not Config.AllowPlayers then
+	return
+end
+
+local function cast()
+	if player.Character then
+		remote:FireServer("cast")
+	end
+end
+
+UserInputService.InputBegan:Connect(function(input, processed)
+	if processed then
+		return
+	end
+	if input.KeyCode == Config.Key or input.KeyCode == Config.GamepadKey then
+		cast()
+	end
+end)
+
+-- botão redondo para celular
+if Config.TouchButton and UserInputService.TouchEnabled then
+	local gui = Instance.new("ScreenGui")
+	gui.Name = "PVDomainButton"
+	gui.ResetOnSpawn = false
+	gui.Parent = player:WaitForChild("PlayerGui")
+	local b = Instance.new("TextButton")
+	b.AnchorPoint = Vector2.new(1, 1)
+	b.Position = UDim2.new(1, -24, 1, -170)
+	b.Size = UDim2.fromOffset(78, 78)
+	b.BackgroundColor3 = Color3.fromRGB(14, 10, 26)
+	b.Text = "領域"
+	b.TextColor3 = Color3.fromRGB(235, 225, 255)
+	b.TextSize = 26
+	b.FontFace = Font.new("rbxasset://fonts/families/GothamSSm.json", Enum.FontWeight.Heavy)
+	b.AutoButtonColor = true
+	b.Parent = gui
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(1, 0)
+	corner.Parent = b
+	local stroke = Instance.new("UIStroke")
+	stroke.Color = Color3.fromRGB(176, 120, 255)
+	stroke.Thickness = 3
+	stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+	stroke.Parent = b
+	b.Activated:Connect(cast)
+end
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX4"><Properties><string name="Name">DomainConfig</string><ProtectedString name="Source"><![CDATA[--!nonstrict
+-- DomainConfig: IDs e ajustes da Expansão de Domínio (Vazio Infinito).
+-- Importe images/ e sounds/ (Asset Manager > Bulk Import) e cole os IDs abaixo.
+local Config = {}
+
+Config.Images = {
+	sky_ft = "rbxassetid://0", -- céu do vazio: 6 faces
+	sky_bk = "rbxassetid://0",
+	sky_lf = "rbxassetid://0",
+	sky_rt = "rbxassetid://0",
+	sky_up = "rbxassetid://0",
+	sky_dn = "rbxassetid://0",
+	bh_core = "rbxassetid://0", -- buraco negro: disco + anel de fótons
+	bh_gas = "rbxassetid://0", -- gás cinza-azulado que gira
+	bh_ring = "rbxassetid://0", -- anel externo (dourado em cima, azulado à esquerda)
+	bh_smoke = "rbxassetid://0", -- fumaça com brilhos ciano
+	streak = "rbxassetid://0", -- linhas de velocidade
+	glitter = "rbxassetid://0",
+	speck = "rbxassetid://0",
+	overload = "rbxassetid://0", -- ruído de "informação infinita" na tela de quem foi pego
+}
+
+Config.Sounds = {
+	cast = "rbxassetid://0", -- pv_domain_cast.wav
+	loop = "rbxassetid://0", -- pv_void_loop.wav
+	overload = "rbxassetid://0", -- pv_void_overload.wav
+	ending = "rbxassetid://0", -- pv_domain_end.wav
+	intro = "rbxassetid://0", -- pv_domain_intro.wav (máscara, olhos, estalo dos dedos)
+}
+Config.Volume = 1
+
+-- QUEM TEM O GOLPE: o domínio é um golpe de personagem. Só lança quem estiver nesta lista (pelo Name do modelo
+-- ou pelo atributo "PVCharacter" do modelo), ou quem tiver o atributo PVDomainMove = true.
+--   mask     = nome do Accessory/peça da venda no personagem (ela é puxada pra cima na cena)
+--   fakeMask = true cria uma venda preta temporária se o personagem não tiver uma
+--   eyeColor = cor do brilho dos olhos quando a venda sai
+Config.Characters = {
+	Satoru = { mask = "Blindfold", eyeColor = Color3.fromRGB(110, 220, 255), fakeMask = true },
+}
+Config.DefaultProfile = { mask = "Blindfold", eyeColor = Color3.fromRGB(110, 220, 255), fakeMask = true } -- para PVDomainMove = true
+Config.RequireCharacter = true -- false = qualquer personagem pode lançar
+
+-- tempos da cena (segundos desde o lançamento)
+Config.Timeline = {
+	sign = 1.35, -- estalo dos dedos cruzados: começa o túnel de linhas
+	expand = 1.7, -- a esfera começa a crescer, câmera recua
+	open = 2.7, -- o domínio fecha: alvos travam, abre o buraco negro
+}
+Config.Cinematic = true -- cena de câmera (close no rosto, máscara, dedos)
+Config.CinematicRange = 1.5 -- quem está a até Radius × isso vê a cena pela câmera
+
+-- regras
+Config.Radius = 60 -- tamanho do domínio (studs)
+Config.OpenTime = Config.Timeline.open
+Config.Duration = 10 -- quanto tempo o domínio fica aberto depois de fechar
+Config.Cooldown = 30
+Config.AllowPlayers = true -- false = só o servidor lança (bosses/NPCs via CastDomain)
+Config.AnchorTargets = true -- alvos ficam parados de verdade (ancorados)
+Config.AnchorCasterDuringCast = true -- quem lança fica parado durante a cena
+Config.CasterAnimationId = nil -- opcional: se quiser uma animação sua por cima da pose automática
+
+-- controles
+Config.Key = Enum.KeyCode.G
+Config.GamepadKey = Enum.KeyCode.ButtonY
+Config.TouchButton = true -- botão na tela para celular
+
+-- textos da abertura
+Config.Title = {
+	top = "領域展開",
+	topSub = "EXPANSÃO DE DOMÍNIO",
+	name = "無量空処",
+	nameSub = "VAZIO INFINITO",
+}
+
+-- visual
+Config.StreakCount = 110
+Config.StreakColor = Color3.fromRGB(255, 255, 255) -- multiplica a cor da textura (rosa/magenta)
+Config.VoidAmbient = Color3.fromRGB(78, 68, 120)
+Config.FogColor = Color3.fromRGB(4, 3, 10)
+Config.CameraPush = 1.25 -- zoom da câmera na abertura
+
+-- perfil do personagem (nil = não tem o golpe)
+function Config.profileFor(model)
+	if not model then
+		return nil
+	end
+	local p = Config.Characters[model.Name] or Config.Characters[model:GetAttribute("PVCharacter") or ""]
+	if p then
+		return p
+	end
+	if model:GetAttribute("PVDomainMove") == true or not Config.RequireCharacter then
+		return Config.DefaultProfile
+	end
+	return nil
+end
+
+return Config
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX5"><Properties><string name="Name">DomainVFX</string><ProtectedString name="Source"><![CDATA[--!nonstrict
+-- DomainVFX: tudo o que se vê e ouve da Expansão de Domínio (roda em cada cliente).
+-- Tempos em Config.Timeline (padrão):
+--   0.00s  cena: close no rosto, tira a venda, olhos acendem, close nos dedos cruzados (DomainCinematic)
+--   1.35s  estalo dos dedos: túnel de linhas de velocidade + "領域展開 / EXPANSÃO DE DOMÍNIO"
+--   1.70s  a esfera preta cresce a partir de quem lançou (onda no chão + borda de campo de força)
+--   2.70s  o domínio fecha: quem está dentro vê o vazio (céu estrelado, névoa, chão espelhado)
+--   2.70–3.40s  o buraco negro abre: disco, gás girando, anel dourado/azulado, fumaça com brilhos
+--   2.85s  "無量空処 / VAZIO INFINITO"
+--   alvos: tela com ruído de informação, flashes, blur, tremor e partículas na cabeça
+--   fim:   o vazio quebra (flash), a esfera encolhe e a iluminação volta ao normal
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local Lighting = game:GetService("Lighting")
+local SoundService = game:GetService("SoundService")
+
+local Config = require(script.Parent:WaitForChild("DomainConfig"))
+local Cinematic = require(script.Parent:WaitForChild("DomainCinematic"))
+local IMG, SND = Config.Images, Config.Sounds
+local TL = Config.Timeline
+local player = Players.LocalPlayer
+
+local VFX = {}
+local domains = {}
+
+-- ------------------------------------------------------------------ helpers
+local function new(class, props)
+	local o = Instance.new(class)
+	local parent = props.Parent
+	props.Parent = nil
+	for k, v in pairs(props) do
+		o[k] = v
+	end
+	if parent then
+		o.Parent = parent
+	end
+	return o
+end
+local function clamp01(x)
+	return math.clamp(x, 0, 1)
+end
+local function outQuad(x)
+	return 1 - (1 - x) * (1 - x)
+end
+local function inOutSine(x)
+	return -(math.cos(math.pi * x) - 1) / 2
+end
+local function outBack(x)
+	local c1 = 1.70158
+	return 1 + (c1 + 1) * (x - 1) ^ 3 + c1 * (x - 1) ^ 2
+end
+-- 0..1..0 envelope: fades in over fi after a, holds, fades out over fo ending at b
+local function window(t, a, b, fi, fo)
+	if t < a or t > b then
+		return 0
+	end
+	return math.min(clamp01((t - a) / fi), clamp01((b - t) / fo))
+end
+local function serverNow()
+	return workspace:GetServerTimeNow()
+end
+local function hasId(id)
+	return id and id ~= "" and id ~= "rbxassetid://0"
+end
+local function rootOf(m)
+	return m and (m:FindFirstChild("HumanoidRootPart") or m.PrimaryPart)
+end
+
+local gui
+local function getGui()
+	if gui and gui.Parent then
+		return gui
+	end
+	gui = new("ScreenGui", { Name = "PVDomainFX", IgnoreGuiInset = true, ResetOnSpawn = false, DisplayOrder = 40, Parent = player:WaitForChild("PlayerGui") })
+	pcall(function()
+		gui.ScreenInsets = Enum.ScreenInsets.None
+	end)
+	return gui
+end
+
+local function part(props)
+	local p = new("Part", { Anchored = true, CanCollide = false, CanQuery = false, CanTouch = false, CastShadow = false, TopSurface = Enum.SurfaceType.Smooth, BottomSurface = Enum.SurfaceType.Smooth })
+	for k, v in pairs(props) do
+		if k ~= "Parent" then
+			p[k] = v
+		end
+	end
+	p.Parent = props.Parent
+	return p
+end
+
+local function sound(id, parent, volume, looped, is3D, radius)
+	if not hasId(id) then
+		return nil
+	end
+	local s = new("Sound", { SoundId = id, Volume = volume * Config.Volume, Looped = looped or false, Parent = parent })
+	if is3D then
+		s.RollOffMode = Enum.RollOffMode.InverseTapered
+		s.RollOffMinDistance = radius * 0.6
+		s.RollOffMaxDistance = radius * 5
+	end
+	return s
+end
+
+local TITLE_FONT = Font.new("rbxasset://fonts/families/GothamSSm.json", Enum.FontWeight.Heavy)
+local SUB_FONT = Font.new("rbxasset://fonts/families/GothamSSm.json", Enum.FontWeight.Bold)
+local function label(parent, text, y, size, font)
+	local l = new("TextLabel", {
+		AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, y), Size = UDim2.new(1, 0, 0, size * 1.3), BackgroundTransparency = 1,
+		Text = text, TextSize = size, FontFace = font, TextColor3 = Color3.new(1, 1, 1), TextTransparency = 1, Parent = parent,
+	})
+	new("UIStroke", { Color = Color3.new(0, 0, 0), Thickness = math.max(2, size / 14), Transparency = 1, Parent = l })
+	return l
+end
+local function setLabelAlpha(l, a)
+	l.TextTransparency = 1 - a
+	l.UIStroke.Transparency = 1 - a
+end
+
+-- ------------------------------------------------------------------ lighting of the void (only while the camera is inside a domain)
+local lit = nil
+local LIGHT_PROPS = { "Ambient", "OutdoorAmbient", "Brightness", "FogColor", "FogStart", "FogEnd", "GlobalShadows", "EnvironmentDiffuseScale", "EnvironmentSpecularScale", "ExposureCompensation" }
+local function applyVoid(radius)
+	if lit then
+		return
+	end
+	lit = { props = {}, moved = {}, made = {} }
+	for _, k in ipairs(LIGHT_PROPS) do
+		local ok, v = pcall(function()
+			return Lighting[k]
+		end)
+		if ok then
+			lit.props[k] = v
+		end
+	end
+	for _, c in ipairs(Lighting:GetChildren()) do
+		if c:IsA("Sky") or c:IsA("Atmosphere") then
+			table.insert(lit.moved, c)
+			c.Parent = nil
+		end
+	end
+	local clouds = workspace.Terrain:FindFirstChildOfClass("Clouds")
+	if clouds and clouds.Enabled then
+		lit.clouds = clouds
+		clouds.Enabled = false
+	end
+	local set = {
+		Ambient = Config.VoidAmbient, OutdoorAmbient = Config.VoidAmbient, Brightness = 0.4, FogColor = Config.FogColor, FogStart = radius * 0.85, FogEnd = radius * 1.2,
+		GlobalShadows = false, EnvironmentDiffuseScale = 0, EnvironmentSpecularScale = 0.4, ExposureCompensation = 0,
+	}
+	for k, v in pairs(set) do
+		pcall(function()
+			Lighting[k] = v
+		end)
+	end
+	table.insert(lit.made, new("Sky", {
+		Name = "PVVoidSky", SkyboxFt = IMG.sky_ft, SkyboxBk = IMG.sky_bk, SkyboxLf = IMG.sky_lf, SkyboxRt = IMG.sky_rt, SkyboxUp = IMG.sky_up, SkyboxDn = IMG.sky_dn,
+		CelestialBodiesShown = false, StarCount = 0, Parent = Lighting,
+	}))
+	table.insert(lit.made, new("ColorCorrectionEffect", { Name = "PVVoidCC", TintColor = Color3.fromRGB(236, 226, 255), Contrast = 0.12, Saturation = -0.12, Parent = Lighting }))
+	table.insert(lit.made, new("BloomEffect", { Name = "PVVoidBloom", Intensity = 0.9, Size = 36, Threshold = 0.85, Parent = Lighting }))
+end
+local function revertVoid()
+	if not lit then
+		return
+	end
+	for _, o in ipairs(lit.made) do
+		o:Destroy()
+	end
+	for k, v in pairs(lit.props) do
+		pcall(function()
+			Lighting[k] = v
+		end)
+	end
+	for _, c in ipairs(lit.moved) do
+		c.Parent = Lighting
+	end
+	if lit.clouds then
+		lit.clouds.Enabled = true
+	end
+	lit = nil
+end
+
+-- ------------------------------------------------------------------ one domain
+local Dom = {}
+Dom.__index = Dom
+
+function Dom.new(d)
+	local self = setmetatable({ d = d, R = d.radius, open = d.openAt - d.startAt, targets = {}, specks = {}, victim = false, gasRot = 0, lastFlicker = 0, nextFlash = 0 }, Dom)
+	local R, c = self.R, d.center
+	local folder = new("Folder", { Name = "PVDomain_" .. d.id, Parent = workspace })
+	self.folder = folder
+	-- the barrier: flat black ball (Neon black = no shading) + shimmering force-field edge
+	self.shell = part({ Name = "Shell", Shape = Enum.PartType.Ball, Material = Enum.Material.Neon, Color = Color3.new(0, 0, 0), Size = Vector3.one * 0.2, Position = c, Parent = folder })
+	self.edge = part({ Name = "Edge", Shape = Enum.PartType.Ball, Material = Enum.Material.ForceField, Color = Color3.fromRGB(176, 120, 255), Size = Vector3.one * 0.2, Position = c, Parent = folder })
+	-- ground: shockwave ring + mirror floor
+	local params = RaycastParams.new()
+	params.FilterType = Enum.RaycastFilterType.Exclude
+	local ignore = { folder }
+	for _, p in ipairs(Players:GetPlayers()) do
+		if p.Character then
+			table.insert(ignore, p.Character)
+		end
+	end
+	if d.caster then
+		table.insert(ignore, d.caster)
+	end
+	params.FilterDescendantsInstances = ignore
+	local hit = workspace:Raycast(c + Vector3.new(0, 2, 0), Vector3.new(0, -80, 0), params)
+	local y = hit and hit.Position.Y or (c.Y - 3)
+	self.floorY = y
+	local flat = CFrame.new(c.X, y, c.Z) * CFrame.Angles(0, 0, math.pi / 2)
+	self.flat = flat
+	self.wave = part({ Name = "Wave", Shape = Enum.PartType.Cylinder, Material = Enum.Material.Neon, Color = Color3.fromRGB(226, 206, 255), Size = Vector3.new(0.4, 1, 1), CFrame = flat * CFrame.new(0.25, 0, 0), Transparency = 1, Parent = folder })
+	self.floor = part({ Name = "VoidFloor", Shape = Enum.PartType.Cylinder, Material = Enum.Material.Glass, Color = Color3.fromRGB(12, 9, 26), Reflectance = 0.3, Size = Vector3.new(0.3, R * 2, R * 2), CFrame = flat * CFrame.new(0.12, 0, 0), Transparency = 1, Parent = folder })
+	-- drifting star dust inside the void
+	local dust = part({ Name = "Dust", Size = Vector3.new(R * 1.8, R * 0.7, R * 1.8), Position = Vector3.new(c.X, y + R * 0.35, c.Z), Transparency = 1, Parent = folder })
+	self.dust = new("ParticleEmitter", {
+		Texture = IMG.speck, Shape = Enum.ParticleEmitterShape.Box, Rate = 45, Lifetime = NumberRange.new(4, 7), Speed = NumberRange.new(0.3, 1.5), SpreadAngle = Vector2.new(180, 180),
+		Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.1), NumberSequenceKeypoint.new(0.5, 0.35), NumberSequenceKeypoint.new(1, 0.1) }),
+		Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(0.3, 0.1), NumberSequenceKeypoint.new(1, 1) }),
+		Color = ColorSequence.new(Color3.fromRGB(235, 230, 255), Color3.fromRGB(170, 220, 255)), LightEmission = 1, LightInfluence = 0, Enabled = false, Parent = dust,
+	})
+	-- the black hole: behind the caster, above the horizon — whoever faces the caster sees them in front of it
+	local fwd = d.forward or Vector3.new(0, 0, -1)
+	local anchor = part({ Name = "BlackHole", Size = Vector3.one, Position = c - fwd * R * 0.8 + Vector3.new(0, R * 0.32, 0), Transparency = 1, Parent = folder })
+	local bb = new("BillboardGui", { Size = UDim2.fromScale(R * 1.3, R * 1.3), LightInfluence = 0, Brightness = 1.25, AlwaysOnTop = false, MaxDistance = 1e5, Enabled = false, Parent = anchor })
+	self.bb = bb
+	local holder = new("Frame", { AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, Parent = bb })
+	self.bhScale = new("UIScale", { Scale = 0, Parent = holder })
+	local function layer(img, z)
+		return new("ImageLabel", { AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, Image = img, ZIndex = z, Parent = holder })
+	end
+	self.smoke = layer(IMG.bh_smoke, 1)
+	self.gas = layer(IMG.bh_gas, 2)
+	self.ring = layer(IMG.bh_ring, 3)
+	self.core = layer(IMG.bh_core, 4)
+	self.glints = {}
+	local rng = Random.new(d.id)
+	for i = 1, 12 do
+		local a = rng:NextNumber(0, math.pi * 2)
+		local rr = 0.367 + rng:NextNumber(-0.02, 0.03)
+		local g = new("ImageLabel", {
+			AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5 + math.cos(a) * rr, 0.5 - math.sin(a) * rr), Size = UDim2.fromScale(0.035, 0.035),
+			BackgroundTransparency = 1, Image = IMG.glitter, ImageColor3 = Color3.fromRGB(210, 240, 255), ZIndex = 5, Parent = holder,
+		})
+		self.glints[i] = { g = g, ph = rng:NextNumber(0, 6.28), sp = rng:NextNumber(2, 5) }
+	end
+	self.bhFlash = new("ImageLabel", { AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromScale(0.9, 0.9), BackgroundTransparency = 1, Image = IMG.glitter, ImageTransparency = 1, ZIndex = 6, Parent = holder })
+	-- caster aura during the hand sign
+	local cr = rootOf(d.caster)
+	if cr then
+		local att = new("Attachment", { Name = "PVDomainAura", Parent = cr })
+		self.aura = att
+		self.auraFx = new("ParticleEmitter", {
+			Texture = IMG.speck, Rate = 70, Lifetime = NumberRange.new(0.5, 1), Speed = NumberRange.new(2, 6), SpreadAngle = Vector2.new(180, 180),
+			Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.5), NumberSequenceKeypoint.new(1, 0) }), Color = ColorSequence.new(Color3.fromRGB(190, 225, 255)),
+			LightEmission = 1, LightInfluence = 0, Parent = att,
+		})
+	end
+	-- screen overlay: speed lines, titles, flash, victim noise
+	local ov = new("Frame", { Name = "Domain" .. d.id, Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, Parent = getGui() })
+	self.ov = ov
+	self.dim = new("Frame", { Size = UDim2.fromScale(1, 1), BackgroundColor3 = Color3.fromRGB(22, 6, 26), BackgroundTransparency = 1, BorderSizePixel = 0, ZIndex = 1, Parent = ov })
+	self.streakHost = new("Frame", { Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, ZIndex = 2, Parent = ov })
+	self.streaks = {}
+	for i = 1, Config.StreakCount do
+		local s = new("ImageLabel", { AnchorPoint = Vector2.new(0.5, 0.5), BackgroundTransparency = 1, Image = IMG.streak, ImageColor3 = Config.StreakColor, ImageTransparency = 1, ZIndex = 2, Parent = self.streakHost })
+		self.streaks[i] = { s = s }
+	end
+	self.sparks = {}
+	for i = 1, 16 do
+		self.sparks[i] = { s = new("ImageLabel", { AnchorPoint = Vector2.new(0.5, 0.5), BackgroundTransparency = 1, Image = IMG.glitter, ImageColor3 = Color3.fromRGB(255, 200, 250), ImageTransparency = 1, ZIndex = 3, Parent = self.streakHost }) }
+	end
+	local titles = new("Frame", { Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, ZIndex = 4, Parent = ov })
+	self.titleScale = new("UIScale", { Parent = titles })
+	self.t1 = label(titles, Config.Title.top, 0.40, 54, TITLE_FONT)
+	self.t1s = label(titles, Config.Title.topSub, 0.48, 22, SUB_FONT)
+	self.t2 = label(titles, Config.Title.name, 0.42, 104, TITLE_FONT)
+	self.t2s = label(titles, Config.Title.nameSub, 0.55, 30, SUB_FONT)
+	self.noise = new("ImageLabel", { Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, Image = IMG.overload, ImageRectSize = Vector2.new(512, 288), ImageTransparency = 1, ZIndex = 5, Parent = ov })
+	self.flash = new("Frame", { Size = UDim2.fromScale(1, 1), BackgroundColor3 = Color3.new(1, 1, 1), BackgroundTransparency = 1, BorderSizePixel = 0, ZIndex = 6, Parent = ov })
+	-- sound: the intro (mask, eyes, finger snap) now; the cast swell is started so its impact lands on "open"
+	self.castSnd = sound(SND.cast, self.shell, 1.2, false, true, R)
+	local introSnd = sound(SND.intro, self.shell, 1.1, false, true, R)
+	if introSnd then
+		introSnd.TimePosition = math.max(0, serverNow() - d.startAt)
+		introSnd:Play()
+	end
+	-- the scene on the caster (pose, blindfold, eyes, fingers) + camera shots for players close by
+	local camDist = (workspace.CurrentCamera.CFrame.Position - c).Magnitude
+	local profile = Config.profileFor(d.caster) or Config.DefaultProfile
+	local okC, cine = pcall(Cinematic.new, d, profile, Config.Cinematic and camDist < R * Config.CinematicRange and (serverNow() - d.startAt) < TL.expand, TL, IMG)
+	if okC then
+		self.cine = cine
+	else
+		warn("[PVDomain] cena: " .. tostring(cine))
+	end
+	-- hand-sign animation on the caster (only the caster's own client plays it; it replicates)
+	if Config.CasterAnimationId and d.caster == player.Character then
+		pcall(function()
+			local anim = new("Animation", { AnimationId = Config.CasterAnimationId })
+			local animator = d.caster:FindFirstChildOfClass("Humanoid"):FindFirstChildOfClass("Animator")
+			animator:LoadAnimation(anim):Play()
+		end)
+	end
+	self.baseFov = workspace.CurrentCamera.FieldOfView
+	return self
+end
+
+function Dom:setTargets(list)
+	self.targets = list or {}
+	for _, m in ipairs(self.targets) do
+		local head = m:FindFirstChild("Head") or rootOf(m)
+		if head then
+			local att = new("Attachment", { Name = "PVDomainOverload", Position = Vector3.new(0, 0.6, 0), Parent = head })
+			new("ParticleEmitter", {
+				Texture = IMG.speck, Rate = 30, Lifetime = NumberRange.new(0.3, 0.8), Speed = NumberRange.new(2, 5), SpreadAngle = Vector2.new(180, 180),
+				Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.35), NumberSequenceKeypoint.new(1, 0) }), Color = ColorSequence.new(Color3.fromRGB(200, 255, 255), Color3.new(1, 1, 1)),
+				LightEmission = 1, LightInfluence = 0, Parent = att,
+			})
+			table.insert(self.specks, att)
+		end
+		if m == player.Character then
+			self:becomeVictim()
+		end
+	end
+end
+
+function Dom:becomeVictim()
+	if self.victim then
+		return
+	end
+	self.victim = true
+	self.blur = new("BlurEffect", { Name = "PVDomainBlur", Size = 0, Parent = workspace.CurrentCamera })
+	self.overSnd = sound(SND.overload, SoundService, 0.9, true)
+	if self.overSnd then
+		self.overSnd:Play()
+	end
+	task.spawn(function()
+		local ok, controls = pcall(function()
+			return require(player:WaitForChild("PlayerScripts"):WaitForChild("PlayerModule", 3)):GetControls()
+		end)
+		if ok and controls and self.victim then
+			self.controls = controls
+			controls:Disable()
+		end
+	end)
+end
+
+function Dom:setInside(on)
+	if self.inside == on then
+		return
+	end
+	self.inside = on
+	self.bb.Enabled = on
+	self.dust.Enabled = on
+	if on then
+		if not self.loopSnd then
+			self.loopSnd = sound(SND.loop, SoundService, 0.8, true)
+			if self.loopSnd then
+				self.loopSnd:Play()
+			end
+		end
+	elseif self.loopSnd then
+		self.loopSnd:Destroy()
+		self.loopSnd = nil
+	end
+end
+
+function Dom:collapse()
+	if self.collapseAt then
+		return
+	end
+	self.collapseAt = serverNow()
+	local s = sound(SND.ending, self.shell, 1.1, false, true, self.R)
+	if s then
+		s:Play()
+	end
+	self:endVictim()
+end
+
+function Dom:endVictim()
+	if not self.victim then
+		return
+	end
+	self.victim = false
+	if self.controls then
+		pcall(function()
+			self.controls:Enable()
+		end)
+		self.controls = nil
+	end
+	if self.blur then
+		self.blur:Destroy()
+		self.blur = nil
+	end
+	if self.overSnd then
+		self.overSnd:Destroy()
+		self.overSnd = nil
+	end
+	local h = player.Character and player.Character:FindFirstChildOfClass("Humanoid")
+	if h then
+		h.CameraOffset = Vector3.zero
+	end
+	self.noise.ImageTransparency = 1
+end
+
+function Dom:destroy()
+	if self.cine then
+		pcall(self.cine.destroy, self.cine)
+	end
+	self:endVictim()
+	self:setInside(false)
+	if self.fovTouched then
+		workspace.CurrentCamera.FieldOfView = self.baseFov
+	end
+	for _, a in ipairs(self.specks) do
+		a:Destroy()
+	end
+	if self.aura then
+		self.aura:Destroy()
+	end
+	self.folder:Destroy()
+	self.ov:Destroy()
+end
+
+-- per frame. t = seconds since the cast; returns false when finished
+function Dom:update(dt)
+	local d, R = self.d, self.R
+	local now = serverNow()
+	local t = now - d.startAt
+	local open = self.open
+	local cam = workspace.CurrentCamera
+	local dist = (cam.CFrame.Position - d.center).Magnitude
+	local near = dist < R * 2.5
+	local col = self.collapseAt and clamp01((now - self.collapseAt) / 0.6) or 0
+	local ex = TL.expand
+	if self.cine and not self.collapseAt then
+		self.cine:update(t)
+	end
+	local castStart = open - 1.35 -- the cast sound's impact is 1.35 s into the file
+	if self.castSnd and not self.castStarted and t >= castStart then
+		self.castStarted = true
+		self.castSnd.TimePosition = t - castStart
+		self.castSnd:Play()
+	end
+	-- barrier growth / collapse
+	local g = outQuad(clamp01((t - ex) / (open - ex))) * (1 - outQuad(col))
+	local size = math.max(0.2, R * 2 * g)
+	self.shell.Size = Vector3.one * size
+	self.edge.Size = Vector3.one * (size * 1.015 + 0.3)
+	self.edge.Transparency = (g <= 0.001) and 1 or 0
+	local wv = clamp01((t - ex) / (open - ex + 0.4))
+	self.wave.Size = Vector3.new(0.4, R * 2.3 * outQuad(wv) + 1, R * 2.3 * outQuad(wv) + 1)
+	self.wave.Transparency = (t < ex or wv >= 1) and 1 or (0.1 + 0.9 * wv)
+	self.floor.Transparency = t >= open - 0.1 and col < 1 and 0 or 1
+	-- inside the void?
+	local inside = dist < R * 0.97 and t >= open - 0.05 and col < 0.5
+	self:setInside(inside)
+	-- camera push (x1.25) while the domain is being cast, back over 1 s (players not in the cinematic)
+	local cineCam = self.cine and self.cine.isViewer
+	if not cineCam and dist < R * 1.5 and t < open + 1 then
+		local k
+		if t < open then
+			k = 1 + (Config.CameraPush - 1) * inOutSine(clamp01((t - TL.sign) / (open - TL.sign)))
+		else
+			k = Config.CameraPush - (Config.CameraPush - 1) * inOutSine(clamp01(t - open))
+		end
+		cam.FieldOfView = self.baseFov / k
+		self.fovTouched = true
+	elseif self.fovTouched then
+		cam.FieldOfView = self.baseFov
+		self.fovTouched = false
+	end
+	-- speed-line tunnel: starts on the finger snap, 1.6 s, 0.45 s fade
+	local sa = near and window(t, TL.sign, TL.sign + 1.6, 0.12, 0.45) or 0
+	self.dim.BackgroundTransparency = 1 - sa * 0.55
+	local vp = cam.ViewportSize
+	local cx, cy = vp.X / 2, vp.Y / 2
+	local half = math.sqrt(cx * cx + cy * cy)
+	local flick = (now - self.lastFlicker) > 1 / 12
+	if flick then
+		self.lastFlicker = now
+	end
+	for _, st in ipairs(self.streaks) do
+		if sa <= 0 then
+			st.s.ImageTransparency = 1
+		else
+			if not st.ang or (flick and math.random() < 0.45) then
+				st.ang = math.random() * math.pi * 2
+				st.dd = 0.1 + math.random() ^ 0.7 * 1.0
+				st.th = 3 + math.random() * 10
+				st.al = 0.35 + math.random() * 0.65
+			end
+			local len = st.dd * half * 0.75
+			local hx, hy = cx + math.cos(st.ang) * st.dd * half, cy + math.sin(st.ang) * st.dd * half
+			st.s.Position = UDim2.fromOffset(hx - math.cos(st.ang) * len / 2, hy - math.sin(st.ang) * len / 2)
+			st.s.Size = UDim2.fromOffset(len, st.th * (0.6 + st.dd))
+			st.s.Rotation = math.deg(st.ang)
+			st.s.ImageTransparency = 1 - sa * st.al
+		end
+	end
+	for i, sp in ipairs(self.sparks) do
+		if sa <= 0 then
+			sp.s.ImageTransparency = 1
+		else
+			if not sp.ang or sp.dd > 1.1 then
+				sp.ang, sp.dd = math.random() * math.pi * 2, 0.05 + math.random() * 0.2
+			end
+			sp.dd += dt * (0.6 + (i % 5) * 0.25)
+			sp.s.Position = UDim2.fromOffset(cx + math.cos(sp.ang) * sp.dd * half, cy + math.sin(sp.ang) * sp.dd * half)
+			local s = 10 + sp.dd * 40
+			sp.s.Size = UDim2.fromOffset(s, s)
+			sp.s.ImageTransparency = 1 - sa * 0.9
+		end
+	end
+	-- titles
+	local a1 = near and window(t, TL.sign - 0.05, ex + 0.75, 0.12, 0.25) or 0
+	local a2 = near and window(t, open + 0.15, open + 2.25, 0.12, 0.5) or 0
+	setLabelAlpha(self.t1, a1)
+	setLabelAlpha(self.t1s, a1 * 0.9)
+	setLabelAlpha(self.t2, a2)
+	setLabelAlpha(self.t2s, a2 * 0.9)
+	self.titleScale.Scale = 1 + 0.08 * (1 - clamp01((t - open - 0.15) / 0.4)) * (a2 > 0 and 1 or 0)
+	-- black hole
+	if inside or col > 0 then
+		local p = clamp01((t - open) / 0.7)
+		self.bhScale.Scale = math.max(0, outBack(p)) * (1 - outQuad(col))
+		self.gasRot += dt * 3
+		self.gas.Rotation = self.gasRot
+		self.smoke.Rotation = self.gasRot * 0.25
+		for _, gl in ipairs(self.glints) do
+			gl.g.ImageTransparency = 0.25 + 0.75 * (0.5 + 0.5 * math.sin(now * gl.sp + gl.ph))
+		end
+		self.bhFlash.ImageTransparency = 1 - 0.9 * window(t, open, open + 0.9, 0.05, 0.8)
+	end
+	-- white flashes: when the void opens (inside) and when it shatters
+	local fl = 0
+	if dist < R then
+		fl = math.max(window(t, open - 0.05, open + 0.4, 0.05, 0.35) * 0.85, col > 0 and (1 - col) * 0.9 or 0)
+	end
+	-- victim: infinite information
+	if self.victim and t >= open then
+		if flick then
+			self.noise.ImageRectOffset = Vector2.new(math.random(0, 512), math.random(0, 736))
+			self.noise.ImageTransparency = 0.5 + math.random() * 0.35
+			self.noise.Rotation = (math.random() - 0.5) * 4
+		end
+		if now > self.nextFlash then
+			self.nextFlash = now + 0.25 + math.random() * 0.6
+			self.flashUntil = now + 0.06
+		end
+		if self.flashUntil and now < self.flashUntil then
+			fl = math.max(fl, 0.55)
+		end
+		if self.blur then
+			self.blur.Size = 5 + 4 * math.sin(now * 7)
+		end
+		local h = player.Character and player.Character:FindFirstChildOfClass("Humanoid")
+		if h then
+			h.CameraOffset = Vector3.new((math.random() - 0.5) * 0.25, (math.random() - 0.5) * 0.25, 0)
+		end
+	end
+	self.flash.BackgroundTransparency = 1 - fl
+	-- caster aura only during the cast
+	if self.auraFx then
+		self.auraFx.Enabled = t >= TL.sign and t < open + 0.7
+	end
+	return col < 1
+end
+
+-- ------------------------------------------------------------------ public
+function VFX.start(d)
+	if domains[d.id] then
+		return
+	end
+	domains[d.id] = Dom.new(d)
+end
+
+function VFX.trap(id, targets)
+	local dom = domains[id]
+	if dom then
+		dom:setTargets(targets)
+	end
+end
+
+function VFX.stop(id)
+	local dom = domains[id]
+	if dom then
+		dom:collapse()
+	end
+end
+
+function VFX.count()
+	local n = 0
+	for _ in pairs(domains) do
+		n += 1
+	end
+	return n
+end
+
+VFX.domains = domains
+
+RunService.RenderStepped:Connect(function(dt)
+	local insideR
+	for id, dom in pairs(domains) do
+		local ok, alive = pcall(dom.update, dom, dt)
+		if not ok then
+			warn("[PVDomain] " .. tostring(alive))
+			alive = false
+			dom.collapseAt = dom.collapseAt or serverNow()
+		end
+		if dom.inside then
+			insideR = dom.R
+		end
+		-- safety: server "stop" lost -> collapse on our own shortly after the scheduled end
+		if not dom.collapseAt and serverNow() > dom.d.endAt + 1 then
+			dom:collapse()
+		end
+		if not alive then
+			local okD, err = pcall(dom.destroy, dom)
+			if not okD then
+				warn("[PVDomain] " .. tostring(err))
+			end
+			domains[id] = nil
+		end
+	end
+	if insideR then
+		applyVoid(insideR)
+	else
+		revertVoid()
+	end
+end)
+
+return VFX
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX6"><Properties><string name="Name">DomainCinematic</string><ProtectedString name="Source"><![CDATA[--!nonstrict
+-- DomainCinematic: a "cena" antes do domínio, no personagem que lança (R15).
+--   0.00  close no rosto
+--   0.10  a mão esquerda vai até os olhos e puxa a máscara/venda pra cima (0.55–0.85)
+--   0.80  os olhos acendem (brilho + faíscas)
+--   0.95  close na mão direita: sobe até o queixo com os dedos cruzados
+--   1.35  "tic" dos dedos (flash) — começa o túnel e o "領域展開"
+--   1.70  câmera abre e recua enquanto a esfera explode
+--   2.70  o domínio fecha; a câmera volta para o jogador (o flash branco esconde o corte)
+-- A pose é feita girando as juntas (Motor6D.C0) localmente em todos os clientes com o mesmo relógio,
+-- então funciona sem subir animação. Os dedos cruzados são duas peças soldadas na mão.
+local Cine = {}
+Cine.__index = Cine
+
+local function clamp01(x)
+	return math.clamp(x, 0, 1)
+end
+local function smooth(x)
+	x = clamp01(x)
+	return x * x * (3 - 2 * x)
+end
+local function outQuad(x)
+	x = clamp01(x)
+	return 1 - (1 - x) * (1 - x)
+end
+local function lerp(a, b, t)
+	return a + (b - a) * t
+end
+-- keyed pose track: { {time, {x,y,z}}, ... } -> angles at t (smoothstep between keys)
+local function track(keys, t)
+	if t <= keys[1][1] then
+		return keys[1][2]
+	end
+	for i = 1, #keys - 1 do
+		local a, b = keys[i], keys[i + 1]
+		if t <= b[1] then
+			local k = smooth((t - a[1]) / (b[1] - a[1]))
+			return { lerp(a[2][1], b[2][1], k), lerp(a[2][2], b[2][2], k), lerp(a[2][3], b[2][3], k) }
+		end
+	end
+	return keys[#keys][2]
+end
+
+local REST = { 0, 0, 0 }
+-- angles in degrees applied as C0 * CFrame.Angles(x, y, z); solved with forward kinematics on a standard R15 rig
+local function poses(TL)
+	local sign, expand, open = TL.sign, TL.expand, TL.open
+	return {
+		-- grab at the eyes, then pull up with the elbow out to the side (the forearm clears the face for the eye reveal)
+		LeftShoulder = { { 0.1, REST }, { 0.4, { 100, -10, 60 } }, { 0.55, { 100, -10, 60 } }, { 0.85, { 180, -80, 40 } }, { 1.2, { 180, -80, 40 } }, { 1.5, REST } },
+		LeftElbow = { { 0.1, REST }, { 0.4, { 70, 0, 0 } }, { 0.55, { 70, 0, 0 } }, { 0.85, { 40, 0, 0 } }, { 1.2, { 40, 0, 0 } }, { 1.5, REST } },
+		RightShoulder = { { 0.95, REST }, { 1.2, { 80, 10, -60 } }, { expand + 0.6, { 80, 10, -60 } }, { open, REST } },
+		RightElbow = { { 0.95, REST }, { 1.2, { 70, 0, 0 } }, { expand + 0.6, { 70, 0, 0 } }, { open, REST } },
+		Neck = { { 0, REST }, { 0.45, { -8, 0, 0 } }, { 0.8, { 5, 0, 0 } }, { sign, { 0, 0, 0 } }, { expand, { 6, 0, 0 } }, { open, REST } },
+		Waist = { { 0, REST }, { 0.95, REST }, { 1.2, { 0, -12, 0 } }, { expand + 0.6, { 0, -12, 0 } }, { open, REST } },
+	}
+end
+
+function Cine.new(d, profile, isViewer, TL, IMG)
+	local caster = d.caster
+	local self = setmetatable({ d = d, TL = TL, profile = profile or {}, isViewer = isViewer, joints = {}, made = {}, done = false }, Cine)
+	self.head = caster and caster:FindFirstChild("Head")
+	self.root = caster and (caster:FindFirstChild("HumanoidRootPart") or caster.PrimaryPart)
+	self.rhand = caster and caster:FindFirstChild("RightHand")
+	if not (self.head and self.root) then
+		return self
+	end
+	self.rootCF = self.root.CFrame
+	-- joints (R15). R6 characters skip the pose but keep the camera shots.
+	self.tracks = poses(TL)
+	for _, m in ipairs(caster:GetDescendants()) do
+		if m:IsA("Motor6D") and self.tracks[m.Name] then
+			self.joints[m.Name] = { motor = m, c0 = m.C0 }
+		end
+	end
+	-- crossed fingers on the right hand (index over middle)
+	if self.rhand then
+		local h = self.rhand
+		local color = h.Color
+		local fy = -h.Size.Y / 2 - 0.24
+		self.fingers = {}
+		for i, spec in ipairs({ { -0.07, -0.05, 0.22 }, { 0.07, 0.03, -0.22 } }) do
+			local f = Instance.new("Part")
+			f.Name = "PVDomainFinger" .. i
+			f.Size = Vector3.new(0.17, 0.5, 0.17)
+			f.Color = color
+			f.Material = Enum.Material.SmoothPlastic
+			f.CanCollide, f.CanQuery, f.CanTouch, f.CastShadow, f.Massless = false, false, false, false, true
+			f.Transparency = 1
+			local w = Instance.new("Weld")
+			w.Part0, w.Part1 = h, f
+			w.C0 = CFrame.new(spec[1], fy, spec[2]) * CFrame.Angles(0, 0, spec[3])
+			w.Parent = f
+			f.Parent = caster
+			table.insert(self.fingers, f)
+			table.insert(self.made, f)
+		end
+	end
+	-- mask / blindfold: Accessory, welded part, or a temporary one
+	self:findMask()
+	-- glowing eyes, shown when the mask comes off
+	local hs = self.head.Size
+	self.eyes = {}
+	for _, x in ipairs({ -0.19, 0.19 }) do
+		local e = Instance.new("Part")
+		e.Name = "PVDomainEye"
+		e.Size = Vector3.new(hs.X * 0.17, hs.Y * 0.07, 0.05)
+		e.Material = Enum.Material.Neon
+		e.Color = self.profile.eyeColor or Color3.fromRGB(110, 220, 255)
+		e.CanCollide, e.CanQuery, e.CanTouch, e.CastShadow, e.Massless = false, false, false, false, true
+		e.Transparency = 1
+		local w = Instance.new("Weld")
+		w.Part0, w.Part1 = self.head, e
+		w.C0 = CFrame.new(x * hs.X / 1.2, hs.Y * 0.1, -hs.Z / 2 - 0.01)
+		w.Parent = e
+		e.Parent = caster
+		table.insert(self.eyes, e)
+		table.insert(self.made, e)
+	end
+	local att = Instance.new("Attachment")
+	att.Name = "PVDomainEyes"
+	att.Position = Vector3.new(0, hs.Y * 0.1, -hs.Z / 2 - 0.1)
+	att.Parent = self.head
+	table.insert(self.made, att)
+	self.eyeLight = Instance.new("PointLight")
+	self.eyeLight.Color = self.profile.eyeColor or Color3.fromRGB(110, 220, 255)
+	self.eyeLight.Range = 5
+	self.eyeLight.Brightness = 0
+	self.eyeLight.Parent = att
+	self.eyeBurst = Instance.new("ParticleEmitter")
+	self.eyeBurst.Texture = IMG.glitter
+	self.eyeBurst.Rate = 0
+	self.eyeBurst.Lifetime = NumberRange.new(0.25, 0.6)
+	self.eyeBurst.Speed = NumberRange.new(1, 4)
+	self.eyeBurst.SpreadAngle = Vector2.new(180, 180)
+	self.eyeBurst.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.5), NumberSequenceKeypoint.new(1, 0) })
+	self.eyeBurst.Color = ColorSequence.new(self.eyeLight.Color, Color3.new(1, 1, 1))
+	self.eyeBurst.LightEmission = 1
+	self.eyeBurst.LightInfluence = 0
+	self.eyeBurst.Parent = att
+	-- camera (only for players close to the caster)
+	if isViewer then
+		local cam = workspace.CurrentCamera
+		self.cam = { type = cam.CameraType, subject = cam.CameraSubject, fov = cam.FieldOfView }
+		cam.CameraType = Enum.CameraType.Scriptable
+		self.camOn = true
+	end
+	return self
+end
+
+function Cine:findMask()
+	local caster, head = self.d.caster, self.head
+	local name = self.profile.mask
+	local obj = name and caster:FindFirstChild(name, true)
+	if obj and obj:IsA("Accessory") then
+		local handle = obj:FindFirstChild("Handle")
+		local w = handle and handle:FindFirstChildWhichIsA("Weld")
+		if w then
+			-- Handle = Head * C1 * C0^-1 (Part1 = head)  -> move in head space by pre-multiplying C1
+			self.mask = { weld = w, prop = w.Part1 == head and "C1" or "C0", base = w.Part1 == head and w.C1 or w.C0, part = handle, headSide = w.Part1 == head }
+		elseif handle then
+			self.mask = { part = handle, fadeOnly = true, tr = handle.Transparency }
+		end
+	elseif obj and obj:IsA("BasePart") then
+		local w = obj:FindFirstChildWhichIsA("Weld") or obj:FindFirstChildWhichIsA("Motor6D")
+		if w and (w.Part0 == head or w.Part1 == head) then
+			self.mask = { weld = w, prop = w.Part0 == head and "C0" or "C1", base = w.Part0 == head and w.C0 or w.C1, part = obj, headSide = w.Part1 == head }
+		else
+			self.mask = { part = obj, fadeOnly = true, tr = obj.Transparency }
+		end
+	elseif self.profile.fakeMask ~= false then
+		local band = Instance.new("Part")
+		band.Name = "PVDomainBlindfold"
+		local hs = head.Size
+		band.Size = Vector3.new(hs.X * 1.04, hs.Y * 0.22, hs.Z * 1.04)
+		band.Color = Color3.fromRGB(14, 12, 16)
+		band.Material = Enum.Material.Fabric
+		band.CanCollide, band.CanQuery, band.CanTouch, band.Massless = false, false, false, true
+		local w = Instance.new("Weld")
+		w.Part0, w.Part1 = head, band
+		w.C0 = CFrame.new(0, hs.Y * 0.1, 0)
+		w.Parent = band
+		band.Parent = self.d.caster
+		table.insert(self.made, band)
+		self.mask = { weld = w, prop = "C0", base = w.C0, part = band, headSide = false, fake = true }
+	end
+end
+
+-- head-space offset of the mask while it is pulled up (0 = on the eyes, 1 = pushed up on the hair)
+function Cine:setMask(k)
+	local m = self.mask
+	if not m then
+		return
+	end
+	if m.fadeOnly then
+		m.part.LocalTransparencyModifier = k
+		return
+	end
+	local off = CFrame.new(0, self.head.Size.Y * 0.42 * k, self.head.Size.Z * 0.06 * k) * CFrame.Angles(math.rad(-28 * k), 0, 0)
+	if m.headSide then
+		-- Part1 is the head: head = part0 * C0 * C1^-1  -> part0 = head * C1 * C0^-1 ; offset the head-side frame (C1)
+		m.weld[m.prop] = off * m.base
+	else
+		-- Part0 is the head: part1 = head * C0 * C1^-1 ; offset C0 in head space
+		m.weld[m.prop] = off * m.base
+	end
+end
+
+local function lookAt(from, to)
+	return CFrame.lookAt(from, to)
+end
+
+-- t = seconds since the cast started
+function Cine:update(t)
+	if self.done or not (self.head and self.root) then
+		return
+	end
+	local TL = self.TL
+	-- pose
+	for name, j in pairs(self.joints) do
+		local a = track(self.tracks[name], t)
+		j.motor.C0 = j.c0 * CFrame.Angles(math.rad(a[1]), math.rad(a[2]), math.rad(a[3]))
+	end
+	-- mask: pulled up between 0.55 and 0.85, stays up during the domain
+	self:setMask(smooth((t - 0.55) / 0.3))
+	-- eyes
+	local eyeOn = clamp01((t - 0.78) / 0.12)
+	for _, e in ipairs(self.eyes) do
+		e.Transparency = 1 - eyeOn
+	end
+	self.eyeLight.Brightness = eyeOn * (0.8 + 1.6 * math.max(0, 1 - (t - 0.8) / 0.5))
+	if not self.burst and t >= 0.8 then
+		self.burst = true
+		self.eyeBurst:Emit(24)
+	end
+	-- fingers
+	if self.fingers then
+		local on = t >= 1.05 and t <= TL.expand + 0.75
+		for _, f in ipairs(self.fingers) do
+			f.Transparency = on and 0 or 1
+		end
+	end
+	-- camera shots
+	if self.camOn then
+		local cam = workspace.CurrentCamera
+		local R = self.rootCF
+		local look, right, up = R.LookVector, R.RightVector, Vector3.new(0, 1, 0)
+		if t < 0.95 then
+			-- face close-up, three-quarter from the character's right so the left hand pulling the blindfold reads
+			local p = t / 0.95
+			local f = self.head.CFrame
+			local dist = lerp(3.4, 2.8, outQuad(p))
+			local from = f.Position + (f.LookVector * 0.82 + f.RightVector * 0.8).Unit * dist + Vector3.new(0, 0.12, 0)
+			cam.CFrame = lookAt(from, f.Position + Vector3.new(0, 0.05 + 0.15 * smooth((t - 0.55) / 0.3), 0))
+			cam.FieldOfView = 40
+		elseif t < TL.expand then
+			-- the hand rises into frame in front of the chin; the face stays behind it
+			local p = (t - 0.95) / (TL.expand - 0.95)
+			local rp = self.root.Position
+			local hand = self.rhand and self.rhand.Position or (self.head.Position - up * 0.4 + look * 0.8)
+			local chest = rp + up * 1.0 + look * 0.8
+			local focus = chest:Lerp(hand, smooth((t - 0.95) / 0.3)):Lerp(self.head.Position, 0.3)
+			local from = rp + look * lerp(3.0, 2.5, outQuad(p)) + right * 1.0 + up * 1.4
+			cam.CFrame = lookAt(from, focus)
+			local punch = math.max(0, 1 - math.abs(t - TL.sign - 0.06) / 0.14)
+			cam.FieldOfView = 44 - 8 * punch
+		elseif t < TL.open + 0.1 then
+			-- pull back ahead of the black wall: the dome swallows the caster and keeps coming at the camera
+			local p = outQuad((t - TL.expand) / (TL.open - TL.expand))
+			local Rr = self.d.radius
+			local center = self.d.center
+			local wall = Rr * outQuad((t - TL.expand) / (TL.open - TL.expand))
+			local dir = (look + up * 0.35 + right * 0.3).Unit
+			local dist = math.max(lerp(5, Rr * 0.5, p), wall * 1.35 + 8)
+			cam.CFrame = lookAt(center + dir * dist, center + up * (1.2 + Rr * 0.2 * p))
+			cam.FieldOfView = lerp(50, 72, p)
+		else
+			self:releaseCamera()
+		end
+	end
+	-- arms back to normal once the domain is closed
+	if t > TL.open + 0.2 and not self.poseDone then
+		self.poseDone = true
+		for _, j in pairs(self.joints) do
+			j.motor.C0 = j.c0
+		end
+		if self.fingers then
+			for _, f in ipairs(self.fingers) do
+				f.Transparency = 1
+			end
+		end
+	end
+end
+
+function Cine:releaseCamera()
+	if not self.camOn then
+		return
+	end
+	self.camOn = false
+	local cam = workspace.CurrentCamera
+	cam.FieldOfView = self.cam.fov
+	local subject = self.cam.subject
+	if not subject or not subject.Parent then
+		local ch = game:GetService("Players").LocalPlayer.Character
+		subject = ch and ch:FindFirstChildOfClass("Humanoid")
+	end
+	if subject then
+		cam.CameraSubject = subject
+	end
+	cam.CameraType = self.cam.type
+end
+
+-- domain over: mask back on the eyes, eyes off, everything removed
+function Cine:destroy()
+	if self.done then
+		return
+	end
+	self.done = true
+	self:releaseCamera()
+	for _, j in pairs(self.joints) do
+		if j.motor.Parent then
+			j.motor.C0 = j.c0
+		end
+	end
+	if self.mask then
+		if self.mask.fadeOnly then
+			self.mask.part.LocalTransparencyModifier = 0
+		elseif self.mask.weld.Parent then
+			self.mask.weld[self.mask.prop] = self.mask.base
+		end
+	end
+	for _, o in ipairs(self.made) do
+		o:Destroy()
+	end
+end
+
+return Cine
+]]></ProtectedString></Properties></Item></Item></roblox>

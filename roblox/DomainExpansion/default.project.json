@@ -1,0 +1,12 @@
+{
+  "name": "PocketVanguardsDomain",
+  "emitLegacyScripts": false,
+  "tree": {
+    "$className": "DataModel",
+    "ReplicatedStorage": {
+      "PVDomain": {
+        "$path": "src"
+      }
+    }
+  }
+}
