@@ -18,6 +18,10 @@ Config.Images = {
 	glitter = "rbxassetid://0",
 	speck = "rbxassetid://0",
 	overload = "rbxassetid://0", -- ruído de "informação infinita" na tela de quem foi pego
+	splash_1 = "rbxassetid://0", -- respingos brancos (4 formatos)
+	splash_2 = "rbxassetid://0",
+	splash_3 = "rbxassetid://0",
+	splash_4 = "rbxassetid://0",
 }
 
 Config.Sounds = {
@@ -34,10 +38,13 @@ Config.Volume = 1
 --   mask     = nome do Accessory/peça da venda no personagem (ela é puxada pra cima na cena)
 --   fakeMask = true cria uma venda preta temporária se o personagem não tiver uma
 --   eyeColor = cor do brilho dos olhos quando a venda sai
+--   eyes     = posição dos olhos na cabeça (fração do tamanho da Head): x = afastamento do centro, y = altura
+--   maskDrop = quanto a venda desce (fração da altura da cabeça) — ela fica pendurada no pescoço
+-- O modelo "Satoru" que vem no pacote é só um placeholder: apague e use o modelo do Gojo do seu jogo com o mesmo nome.
 Config.Characters = {
-	Satoru = { mask = "Blindfold", eyeColor = Color3.fromRGB(110, 220, 255), fakeMask = true },
+	Satoru = { mask = "Blindfold", eyeColor = Color3.fromRGB(110, 220, 255), fakeMask = true, eyes = Vector2.new(0.16, 0.1), maskDrop = 0.62 },
 }
-Config.DefaultProfile = { mask = "Blindfold", eyeColor = Color3.fromRGB(110, 220, 255), fakeMask = true } -- para PVDomainMove = true
+Config.DefaultProfile = { mask = "Blindfold", eyeColor = Color3.fromRGB(110, 220, 255), fakeMask = true, eyes = Vector2.new(0.16, 0.1), maskDrop = 0.62 } -- para PVDomainMove = true
 Config.RequireCharacter = true -- false = qualquer personagem pode lançar
 
 -- tempos da cena (segundos desde o lançamento)
@@ -48,6 +55,12 @@ Config.Timeline = {
 }
 Config.Cinematic = true -- cena de câmera (close no rosto, máscara, dedos)
 Config.CinematicRange = 1.5 -- quem está a até Radius × isso vê a cena pela câmera
+
+-- DIMENSÃO: quando o domínio fecha, quem lançou e os alvos são levados para uma dimensão separada (o vazio),
+-- mantendo a distância que tinham de quem lançou. No mapa fica só a cúpula preta. No fim, todos voltam pro lugar.
+Config.UseDimension = true
+Config.DimensionOrigin = Vector3.new(0, 4000, 0) -- longe do mapa (troque se o seu mapa usar essa área)
+Config.DimensionSpacing = 1500 -- vários domínios ao mesmo tempo ficam lado a lado
 
 -- regras
 Config.Radius = 60 -- tamanho do domínio (studs)
@@ -74,6 +87,7 @@ Config.Title = {
 
 -- visual
 Config.StreakCount = 110
+Config.SplashCount = 26 -- respingos brancos espalhados no vazio
 Config.StreakColor = Color3.fromRGB(255, 255, 255) -- multiplica a cor da textura (rosa/magenta)
 Config.VoidAmbient = Color3.fromRGB(78, 68, 120)
 Config.FogColor = Color3.fromRGB(4, 3, 10)

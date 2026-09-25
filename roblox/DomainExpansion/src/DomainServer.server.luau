@@ -93,7 +93,56 @@ local function release(m)
 end
 
 local function pack(d)
-	return { id = d.id, caster = d.caster, center = d.center, forward = d.forward, radius = d.radius, startAt = d.startAt, openAt = d.openAt, endAt = d.endAt }
+	return {
+		id = d.id, caster = d.caster, center = d.center, forward = d.forward, radius = d.radius, startAt = d.startAt, openAt = d.openAt, endAt = d.endAt,
+		floorY = d.floorY, dimOrigin = d.dimOrigin, dimFloorY = d.dimFloorY,
+	}
+end
+
+-- ------------------------------------------------------------------ the pocket dimension
+local function groundBelow(center, ignore)
+	local params = RaycastParams.new()
+	params.FilterType = Enum.RaycastFilterType.Exclude
+	local list = { ignore }
+	for _, p in ipairs(Players:GetPlayers()) do
+		if p.Character then
+			table.insert(list, p.Character)
+		end
+	end
+	params.FilterDescendantsInstances = list
+	local hit = workspace:Raycast(center + Vector3.new(0, 2, 0), Vector3.new(0, -80, 0), params)
+	return hit and hit.Position.Y or (center.Y - 3)
+end
+
+-- move a character into the dimension keeping its offset from the caster
+local function toDimension(d, m)
+	if not m.Parent or d.moved[m] then
+		return
+	end
+	local pivot = m:GetPivot()
+	d.moved[m] = pivot
+	m:PivotTo(pivot - d.center + d.dimOrigin)
+	local r = rootPart(m)
+	if r then
+		r.AssemblyLinearVelocity = Vector3.zero
+	end
+end
+
+local function fromDimension(d)
+	for m, pivot in pairs(d.moved) do
+		if m.Parent then
+			m:PivotTo(pivot)
+			local r = rootPart(m)
+			if r then
+				r.AssemblyLinearVelocity = Vector3.zero
+			end
+		end
+	end
+	d.moved = {}
+	if d.dimFloor then
+		d.dimFloor:Destroy()
+		d.dimFloor = nil
+	end
 end
 
 local function finish(id)
@@ -105,6 +154,7 @@ local function finish(id)
 	for _, c in ipairs(d.conns) do
 		c:Disconnect()
 	end
+	fromDimension(d)
 	for _, m in ipairs(d.targets) do
 		release(m)
 	end
@@ -137,8 +187,13 @@ local function cast(caster)
 	local now = workspace:GetServerTimeNow()
 	local d = {
 		id = id, caster = caster, center = r.Position, forward = flat.Magnitude > 0.01 and flat.Unit or Vector3.new(0, 0, -1), radius = Config.Radius,
-		startAt = now, openAt = now + Config.OpenTime, endAt = now + Config.OpenTime + Config.Duration, targets = {}, conns = {},
+		startAt = now, openAt = now + Config.OpenTime, endAt = now + Config.OpenTime + Config.Duration, targets = {}, conns = {}, moved = {},
 	}
+	d.floorY = groundBelow(d.center, caster)
+	if Config.UseDimension then
+		d.dimOrigin = Config.DimensionOrigin + Vector3.new((id % 8) * Config.DimensionSpacing, 0, 0)
+		d.dimFloorY = d.dimOrigin.Y + (d.floorY - d.center.Y)
+	end
 	active[id] = d
 	if Config.AnchorCasterDuringCast and not r.Anchored then
 		r.Anchored = true
@@ -157,6 +212,19 @@ local function cast(caster)
 			finish(id)
 		end
 	end))
+	-- StreamingEnabled games: load the dimension area for the players nearby before they are moved there
+	if Config.UseDimension and workspace.StreamingEnabled then
+		for _, p in ipairs(Players:GetPlayers()) do
+			local pr = rootPart(p.Character)
+			if pr and (pr.Position - d.center).Magnitude <= d.radius * 1.2 then
+				task.spawn(function()
+					pcall(function()
+						p:RequestStreamAroundAsync(pr.Position - d.center + d.dimOrigin, 3)
+					end)
+				end)
+			end
+		end
+	end
 	task.delay(Config.OpenTime, function()
 		if active[id] ~= d then
 			return
@@ -164,6 +232,21 @@ local function cast(caster)
 		d.targets = findTargets(caster, d.center, d.radius)
 		for _, m in ipairs(d.targets) do
 			stun(m, id)
+		end
+		if Config.UseDimension then
+			local floor = Instance.new("Part")
+			floor.Name = "PVDomainDimensionFloor"
+			floor.Anchored = true
+			floor.Transparency = 1
+			floor.CanQuery = false
+			floor.Size = Vector3.new(d.radius * 2.4, 2, d.radius * 2.4)
+			floor.Position = Vector3.new(d.dimOrigin.X, d.dimFloorY - 1, d.dimOrigin.Z)
+			floor.Parent = workspace
+			d.dimFloor = floor
+			toDimension(d, caster)
+			for _, m in ipairs(d.targets) do
+				toDimension(d, m)
+			end
 		end
 		remote:FireAllClients("trap", id, d.targets)
 		started:Fire(id, caster, d.targets)

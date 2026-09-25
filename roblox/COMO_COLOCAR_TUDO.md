@@ -75,7 +75,8 @@ Sons.say("mina", "Oi! Vamos pro Círculo de Pedra?", caixaDeTexto)
 ## 5. Expansão de Domínio
 
 1. Arraste `DomainExpansion/PocketVanguardsDomain.rbxmx` para **ReplicatedStorage**.
-2. Bulk Import das 14 imagens e dos 5 sons. Cole os IDs em `PVDomain.DomainConfig`.
+2. Bulk Import das 18 imagens e dos 5 sons. Cole os IDs em `PVDomain.DomainConfig`.
+   Para testar sem o seu Gojo: arraste `DomainExpansion/SatoruPlaceholder.rbxmx` para o Workspace e segure E perto dele. Depois apague.
 3. Diga qual personagem tem o golpe: em `Config.Characters`, use o nome do modelo, ou dê o atributo `PVDomainMove = true` ao personagem.
 4. Lance com **G** ou pelo servidor: `PVDomain.CastDomain:Fire(modelo)`.
 

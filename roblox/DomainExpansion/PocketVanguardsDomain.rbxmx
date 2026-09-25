@@ -93,7 +93,56 @@ local function release(m)
 end
 
 local function pack(d)
-	return { id = d.id, caster = d.caster, center = d.center, forward = d.forward, radius = d.radius, startAt = d.startAt, openAt = d.openAt, endAt = d.endAt }
+	return {
+		id = d.id, caster = d.caster, center = d.center, forward = d.forward, radius = d.radius, startAt = d.startAt, openAt = d.openAt, endAt = d.endAt,
+		floorY = d.floorY, dimOrigin = d.dimOrigin, dimFloorY = d.dimFloorY,
+	}
+end
+
+-- ------------------------------------------------------------------ the pocket dimension
+local function groundBelow(center, ignore)
+	local params = RaycastParams.new()
+	params.FilterType = Enum.RaycastFilterType.Exclude
+	local list = { ignore }
+	for _, p in ipairs(Players:GetPlayers()) do
+		if p.Character then
+			table.insert(list, p.Character)
+		end
+	end
+	params.FilterDescendantsInstances = list
+	local hit = workspace:Raycast(center + Vector3.new(0, 2, 0), Vector3.new(0, -80, 0), params)
+	return hit and hit.Position.Y or (center.Y - 3)
+end
+
+-- move a character into the dimension keeping its offset from the caster
+local function toDimension(d, m)
+	if not m.Parent or d.moved[m] then
+		return
+	end
+	local pivot = m:GetPivot()
+	d.moved[m] = pivot
+	m:PivotTo(pivot - d.center + d.dimOrigin)
+	local r = rootPart(m)
+	if r then
+		r.AssemblyLinearVelocity = Vector3.zero
+	end
+end
+
+local function fromDimension(d)
+	for m, pivot in pairs(d.moved) do
+		if m.Parent then
+			m:PivotTo(pivot)
+			local r = rootPart(m)
+			if r then
+				r.AssemblyLinearVelocity = Vector3.zero
+			end
+		end
+	end
+	d.moved = {}
+	if d.dimFloor then
+		d.dimFloor:Destroy()
+		d.dimFloor = nil
+	end
 end
 
 local function finish(id)
@@ -105,6 +154,7 @@ local function finish(id)
 	for _, c in ipairs(d.conns) do
 		c:Disconnect()
 	end
+	fromDimension(d)
 	for _, m in ipairs(d.targets) do
 		release(m)
 	end
@@ -137,8 +187,13 @@ local function cast(caster)
 	local now = workspace:GetServerTimeNow()
 	local d = {
 		id = id, caster = caster, center = r.Position, forward = flat.Magnitude > 0.01 and flat.Unit or Vector3.new(0, 0, -1), radius = Config.Radius,
-		startAt = now, openAt = now + Config.OpenTime, endAt = now + Config.OpenTime + Config.Duration, targets = {}, conns = {},
+		startAt = now, openAt = now + Config.OpenTime, endAt = now + Config.OpenTime + Config.Duration, targets = {}, conns = {}, moved = {},
 	}
+	d.floorY = groundBelow(d.center, caster)
+	if Config.UseDimension then
+		d.dimOrigin = Config.DimensionOrigin + Vector3.new((id % 8) * Config.DimensionSpacing, 0, 0)
+		d.dimFloorY = d.dimOrigin.Y + (d.floorY - d.center.Y)
+	end
 	active[id] = d
 	if Config.AnchorCasterDuringCast and not r.Anchored then
 		r.Anchored = true
@@ -157,6 +212,19 @@ local function cast(caster)
 			finish(id)
 		end
 	end))
+	-- StreamingEnabled games: load the dimension area for the players nearby before they are moved there
+	if Config.UseDimension and workspace.StreamingEnabled then
+		for _, p in ipairs(Players:GetPlayers()) do
+			local pr = rootPart(p.Character)
+			if pr and (pr.Position - d.center).Magnitude <= d.radius * 1.2 then
+				task.spawn(function()
+					pcall(function()
+						p:RequestStreamAroundAsync(pr.Position - d.center + d.dimOrigin, 3)
+					end)
+				end)
+			end
+		end
+	end
 	task.delay(Config.OpenTime, function()
 		if active[id] ~= d then
 			return
@@ -164,6 +232,21 @@ local function cast(caster)
 		d.targets = findTargets(caster, d.center, d.radius)
 		for _, m in ipairs(d.targets) do
 			stun(m, id)
+		end
+		if Config.UseDimension then
+			local floor = Instance.new("Part")
+			floor.Name = "PVDomainDimensionFloor"
+			floor.Anchored = true
+			floor.Transparency = 1
+			floor.CanQuery = false
+			floor.Size = Vector3.new(d.radius * 2.4, 2, d.radius * 2.4)
+			floor.Position = Vector3.new(d.dimOrigin.X, d.dimFloorY - 1, d.dimOrigin.Z)
+			floor.Parent = workspace
+			d.dimFloor = floor
+			toDimension(d, caster)
+			for _, m in ipairs(d.targets) do
+				toDimension(d, m)
+			end
 		end
 		remote:FireAllClients("trap", id, d.targets)
 		started:Fire(id, caster, d.targets)
@@ -283,6 +366,10 @@ Config.Images = {
 	glitter = "rbxassetid://0",
 	speck = "rbxassetid://0",
 	overload = "rbxassetid://0", -- ruído de "informação infinita" na tela de quem foi pego
+	splash_1 = "rbxassetid://0", -- respingos brancos (4 formatos)
+	splash_2 = "rbxassetid://0",
+	splash_3 = "rbxassetid://0",
+	splash_4 = "rbxassetid://0",
 }
 
 Config.Sounds = {
@@ -299,10 +386,13 @@ Config.Volume = 1
 --   mask     = nome do Accessory/peça da venda no personagem (ela é puxada pra cima na cena)
 --   fakeMask = true cria uma venda preta temporária se o personagem não tiver uma
 --   eyeColor = cor do brilho dos olhos quando a venda sai
+--   eyes     = posição dos olhos na cabeça (fração do tamanho da Head): x = afastamento do centro, y = altura
+--   maskDrop = quanto a venda desce (fração da altura da cabeça) — ela fica pendurada no pescoço
+-- O modelo "Satoru" que vem no pacote é só um placeholder: apague e use o modelo do Gojo do seu jogo com o mesmo nome.
 Config.Characters = {
-	Satoru = { mask = "Blindfold", eyeColor = Color3.fromRGB(110, 220, 255), fakeMask = true },
+	Satoru = { mask = "Blindfold", eyeColor = Color3.fromRGB(110, 220, 255), fakeMask = true, eyes = Vector2.new(0.16, 0.1), maskDrop = 0.62 },
 }
-Config.DefaultProfile = { mask = "Blindfold", eyeColor = Color3.fromRGB(110, 220, 255), fakeMask = true } -- para PVDomainMove = true
+Config.DefaultProfile = { mask = "Blindfold", eyeColor = Color3.fromRGB(110, 220, 255), fakeMask = true, eyes = Vector2.new(0.16, 0.1), maskDrop = 0.62 } -- para PVDomainMove = true
 Config.RequireCharacter = true -- false = qualquer personagem pode lançar
 
 -- tempos da cena (segundos desde o lançamento)
@@ -313,6 +403,12 @@ Config.Timeline = {
 }
 Config.Cinematic = true -- cena de câmera (close no rosto, máscara, dedos)
 Config.CinematicRange = 1.5 -- quem está a até Radius × isso vê a cena pela câmera
+
+-- DIMENSÃO: quando o domínio fecha, quem lançou e os alvos são levados para uma dimensão separada (o vazio),
+-- mantendo a distância que tinham de quem lançou. No mapa fica só a cúpula preta. No fim, todos voltam pro lugar.
+Config.UseDimension = true
+Config.DimensionOrigin = Vector3.new(0, 4000, 0) -- longe do mapa (troque se o seu mapa usar essa área)
+Config.DimensionSpacing = 1500 -- vários domínios ao mesmo tempo ficam lado a lado
 
 -- regras
 Config.Radius = 60 -- tamanho do domínio (studs)
@@ -339,6 +435,7 @@ Config.Title = {
 
 -- visual
 Config.StreakCount = 110
+Config.SplashCount = 26 -- respingos brancos espalhados no vazio
 Config.StreakColor = Color3.fromRGB(255, 255, 255) -- multiplica a cor da textura (rosa/magenta)
 Config.VoidAmbient = Color3.fromRGB(78, 68, 120)
 Config.FogColor = Color3.fromRGB(4, 3, 10)
@@ -366,7 +463,8 @@ return Config
 --   0.00s  cena: close no rosto, tira a venda, olhos acendem, close nos dedos cruzados (DomainCinematic)
 --   1.35s  estalo dos dedos: túnel de linhas de velocidade + "領域展開 / EXPANSÃO DE DOMÍNIO"
 --   1.70s  a esfera preta cresce a partir de quem lançou (onda no chão + borda de campo de força)
---   2.70s  o domínio fecha: quem está dentro vê o vazio (céu estrelado, névoa, chão espelhado)
+--   2.70s  o domínio fecha: respingo branco na tela e quem estava dentro vai para a DIMENSÃO do vazio
+--          (céu estrelado, névoa, chão espelhado como água, respingos brancos, correntes de luz)
 --   2.70–3.40s  o buraco negro abre: disco, gás girando, anel dourado/azulado, fumaça com brilhos
 --   2.85s  "無量空処 / VAZIO INFINITO"
 --   alvos: tela com ruído de informação, flashes, blur, tremor e partículas na cabeça
@@ -568,24 +666,59 @@ function Dom.new(d)
 		table.insert(ignore, d.caster)
 	end
 	params.FilterDescendantsInstances = ignore
-	local hit = workspace:Raycast(c + Vector3.new(0, 2, 0), Vector3.new(0, -80, 0), params)
-	local y = hit and hit.Position.Y or (c.Y - 3)
+	local y = d.floorY
+	if not y then
+		local hit = workspace:Raycast(c + Vector3.new(0, 2, 0), Vector3.new(0, -80, 0), params)
+		y = hit and hit.Position.Y or (c.Y - 3)
+	end
 	self.floorY = y
 	local flat = CFrame.new(c.X, y, c.Z) * CFrame.Angles(0, 0, math.pi / 2)
 	self.flat = flat
 	self.wave = part({ Name = "Wave", Shape = Enum.PartType.Cylinder, Material = Enum.Material.Neon, Color = Color3.fromRGB(226, 206, 255), Size = Vector3.new(0.4, 1, 1), CFrame = flat * CFrame.new(0.25, 0, 0), Transparency = 1, Parent = folder })
-	self.floor = part({ Name = "VoidFloor", Shape = Enum.PartType.Cylinder, Material = Enum.Material.Glass, Color = Color3.fromRGB(12, 9, 26), Reflectance = 0.3, Size = Vector3.new(0.3, R * 2, R * 2), CFrame = flat * CFrame.new(0.12, 0, 0), Transparency = 1, Parent = folder })
+	-- the void is built in the pocket dimension (or inside the dome when Config.UseDimension = false)
+	local vc = d.dimOrigin or c
+	local vy = d.dimFloorY or y
+	self.vc, self.vy = vc, vy
+	local vflat = CFrame.new(vc.X, vy, vc.Z) * CFrame.Angles(0, 0, math.pi / 2)
+	local floorR = d.dimOrigin and R * 2.4 or R * 2
+	self.floor = part({ Name = "VoidFloor", Shape = Enum.PartType.Cylinder, Material = Enum.Material.Glass, Color = Color3.fromRGB(10, 8, 24), Reflectance = 0.35, Size = Vector3.new(0.3, floorR, floorR), CFrame = vflat * CFrame.new(0.12, 0, 0), Transparency = 1, Parent = folder })
 	-- drifting star dust inside the void
-	local dust = part({ Name = "Dust", Size = Vector3.new(R * 1.8, R * 0.7, R * 1.8), Position = Vector3.new(c.X, y + R * 0.35, c.Z), Transparency = 1, Parent = folder })
+	local dust = part({ Name = "Dust", Size = Vector3.new(R * 1.8, R * 0.7, R * 1.8), Position = Vector3.new(vc.X, vy + R * 0.35, vc.Z), Transparency = 1, Parent = folder })
 	self.dust = new("ParticleEmitter", {
 		Texture = IMG.speck, Shape = Enum.ParticleEmitterShape.Box, Rate = 45, Lifetime = NumberRange.new(4, 7), Speed = NumberRange.new(0.3, 1.5), SpreadAngle = Vector2.new(180, 180),
 		Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.1), NumberSequenceKeypoint.new(0.5, 0.35), NumberSequenceKeypoint.new(1, 0.1) }),
 		Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(0.3, 0.1), NumberSequenceKeypoint.new(1, 1) }),
 		Color = ColorSequence.new(Color3.fromRGB(235, 230, 255), Color3.fromRGB(170, 220, 255)), LightEmission = 1, LightInfluence = 0, Enabled = false, Parent = dust,
 	})
+	-- streams of white light flowing through the void
+	local streams = part({ Name = "Streams", Size = Vector3.new(R * 1.6, R * 0.5, 4), CFrame = CFrame.lookAt(Vector3.new(vc.X, vy + R * 0.3, vc.Z) + (d.forward or Vector3.new(0, 0, -1)) * R * 0.9, Vector3.new(vc.X, vy + R * 0.3, vc.Z)), Transparency = 1, Parent = folder })
+	self.streams = new("ParticleEmitter", {
+		Texture = IMG.streak, Shape = Enum.ParticleEmitterShape.Box, EmissionDirection = Enum.NormalId.Front, Rate = 55, Lifetime = NumberRange.new(0.8, 1.6), Speed = NumberRange.new(70, 140),
+		SpreadAngle = Vector2.new(12, 6), Orientation = Enum.ParticleOrientation.VelocityParallel,
+		Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 2.5), NumberSequenceKeypoint.new(1, 4) }),
+		Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(0.2, 0.15), NumberSequenceKeypoint.new(1, 1) }),
+		Color = ColorSequence.new(Color3.new(1, 1, 1), Color3.fromRGB(220, 210, 255)), LightEmission = 1, LightInfluence = 0, Enabled = false, Parent = streams,
+	})
+	-- white splashes (ink splatters) popping all over the void
+	self.splats = {}
+	local srng = Random.new(d.id * 7 + 3)
+	for i = 1, Config.SplashCount do
+		local a = srng:NextNumber(0, math.pi * 2)
+		local dist = R * srng:NextNumber(0.45, 1.0)
+		local pos = Vector3.new(vc.X + math.cos(a) * dist, vy + srng:NextNumber(3, R * 0.65), vc.Z + math.sin(a) * dist)
+		local sp = part({ Name = "Splash", Size = Vector3.one, Position = pos, Transparency = 1, Parent = folder })
+		local size = srng:NextNumber(8, 26)
+		local sbb = new("BillboardGui", { Size = UDim2.fromScale(size, size), LightInfluence = 0, Brightness = 2, MaxDistance = 1e5, Enabled = false, Parent = sp })
+		local img = new("ImageLabel", {
+			AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1,
+			Image = IMG["splash_" .. ((i - 1) % 4 + 1)], Rotation = srng:NextNumber(0, 360), Parent = sbb,
+		})
+		local sc = new("UIScale", { Scale = 0, Parent = img })
+		self.splats[i] = { bb = sbb, img = img, sc = sc, at = self.open + srng:NextNumber(0, 1.4), spin = srng:NextNumber(-4, 4), again = self.open + srng:NextNumber(3, 7) }
+	end
 	-- the black hole: behind the caster, above the horizon — whoever faces the caster sees them in front of it
 	local fwd = d.forward or Vector3.new(0, 0, -1)
-	local anchor = part({ Name = "BlackHole", Size = Vector3.one, Position = c - fwd * R * 0.8 + Vector3.new(0, R * 0.32, 0), Transparency = 1, Parent = folder })
+	local anchor = part({ Name = "BlackHole", Size = Vector3.one, Position = vc - fwd * R * 0.8 + Vector3.new(0, R * 0.32, 0), Transparency = 1, Parent = folder })
 	local bb = new("BillboardGui", { Size = UDim2.fromScale(R * 1.3, R * 1.3), LightInfluence = 0, Brightness = 1.25, AlwaysOnTop = false, MaxDistance = 1e5, Enabled = false, Parent = anchor })
 	self.bb = bb
 	local holder = new("Frame", { AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, Parent = bb })
@@ -636,12 +769,24 @@ function Dom.new(d)
 	end
 	local titles = new("Frame", { Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, ZIndex = 4, Parent = ov })
 	self.titleScale = new("UIScale", { Parent = titles })
-	self.t1 = label(titles, Config.Title.top, 0.40, 54, TITLE_FONT)
-	self.t1s = label(titles, Config.Title.topSub, 0.48, 22, SUB_FONT)
-	self.t2 = label(titles, Config.Title.name, 0.42, 104, TITLE_FONT)
-	self.t2s = label(titles, Config.Title.nameSub, 0.55, 30, SUB_FONT)
+	-- low on the screen so the face / the black hole stay visible
+	self.t1 = label(titles, Config.Title.top, 0.78, 54, TITLE_FONT)
+	self.t1s = label(titles, Config.Title.topSub, 0.86, 22, SUB_FONT)
+	self.t2 = label(titles, Config.Title.name, 0.76, 96, TITLE_FONT)
+	self.t2s = label(titles, Config.Title.nameSub, 0.88, 30, SUB_FONT)
 	self.noise = new("ImageLabel", { Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, Image = IMG.overload, ImageRectSize = Vector2.new(512, 288), ImageTransparency = 1, ZIndex = 5, Parent = ov })
 	self.flash = new("Frame", { Size = UDim2.fromScale(1, 1), BackgroundColor3 = Color3.new(1, 1, 1), BackgroundTransparency = 1, BorderSizePixel = 0, ZIndex = 6, Parent = ov })
+	-- white splash wipe that covers the cut into the dimension
+	self.wipe = {}
+	for i = 1, 3 do
+		local w = new("ImageLabel", {
+			AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5 + (i - 2) * 0.12, 0.5 + (i % 2) * 0.06 - 0.03), Size = UDim2.fromScale(1, 1), SizeConstraint = Enum.SizeConstraint.RelativeXX,
+			BackgroundTransparency = 1, Image = IMG["splash_" .. i], ImageTransparency = 1, Rotation = i * 97, ZIndex = 7, Parent = ov,
+		})
+		self.wipe[i] = { img = w, sc = new("UIScale", { Scale = 0, Parent = w }), delay = (i - 1) * 0.05 }
+	end
+	-- splashes that flash on the screen of whoever is trapped
+	self.vsplash = new("ImageLabel", { AnchorPoint = Vector2.new(0.5, 0.5), Size = UDim2.fromScale(0.45, 0.45), SizeConstraint = Enum.SizeConstraint.RelativeYY, BackgroundTransparency = 1, Image = IMG.splash_1, ImageTransparency = 1, ZIndex = 6, Parent = ov })
 	-- sound: the intro (mask, eyes, finger snap) now; the cast swell is started so its impact lands on "open"
 	self.castSnd = sound(SND.cast, self.shell, 1.2, false, true, R)
 	local introSnd = sound(SND.intro, self.shell, 1.1, false, true, R)
@@ -717,6 +862,10 @@ function Dom:setInside(on)
 	self.inside = on
 	self.bb.Enabled = on
 	self.dust.Enabled = on
+	self.streams.Enabled = on
+	for _, sp in ipairs(self.splats) do
+		sp.bb.Enabled = on
+	end
 	if on then
 		if not self.loopSnd then
 			self.loopSnd = sound(SND.loop, SoundService, 0.8, true)
@@ -795,7 +944,7 @@ function Dom:update(dt)
 	local open = self.open
 	local cam = workspace.CurrentCamera
 	local dist = (cam.CFrame.Position - d.center).Magnitude
-	local near = dist < R * 2.5
+	local near = dist < R * 2.5 or (d.dimOrigin ~= nil and (cam.CFrame.Position - d.dimOrigin).Magnitude < R * 1.4)
 	local col = self.collapseAt and clamp01((now - self.collapseAt) / 0.6) or 0
 	local ex = TL.expand
 	if self.cine and not self.collapseAt then
@@ -817,8 +966,10 @@ function Dom:update(dt)
 	self.wave.Size = Vector3.new(0.4, R * 2.3 * outQuad(wv) + 1, R * 2.3 * outQuad(wv) + 1)
 	self.wave.Transparency = (t < ex or wv >= 1) and 1 or (0.1 + 0.9 * wv)
 	self.floor.Transparency = t >= open - 0.1 and col < 1 and 0 or 1
-	-- inside the void?
-	local inside = dist < R * 0.97 and t >= open - 0.05 and col < 0.5
+	-- inside the void? (in the pocket dimension, or inside the dome without it)
+	local distVoid = d.dimOrigin and (cam.CFrame.Position - d.dimOrigin).Magnitude or dist
+	local inside = distVoid < R * (d.dimOrigin and 1.4 or 0.97) and t >= open - 0.05 and col < 0.5
+	local witness = dist < R or inside -- saw the domain close from inside
 	self:setInside(inside)
 	-- camera push (x1.25) while the domain is being cast, back over 1 s (players not in the cinematic)
 	local cineCam = self.cine and self.cine.isViewer
@@ -897,10 +1048,33 @@ function Dom:update(dt)
 		end
 		self.bhFlash.ImageTransparency = 1 - 0.9 * window(t, open, open + 0.9, 0.05, 0.8)
 	end
-	-- white flashes: when the void opens (inside) and when it shatters
+	-- white flashes + splash wipe: when the void opens and when it shatters
 	local fl = 0
-	if dist < R then
-		fl = math.max(window(t, open - 0.05, open + 0.4, 0.05, 0.35) * 0.85, col > 0 and (1 - col) * 0.9 or 0)
+	if witness then
+		fl = math.max(window(t, open - 0.05, open + 0.4, 0.05, 0.35) * 0.6, col > 0 and (1 - col) * 0.9 or 0)
+	end
+	for _, w in ipairs(self.wipe) do
+		local k = witness and (t - (open - 0.12) - w.delay) or -1
+		if k >= 0 and k < 1.0 then
+			w.sc.Scale = 0.2 + 2.6 * outQuad(clamp01(k / 0.28))
+			w.img.ImageTransparency = clamp01((k - 0.3) / 0.55)
+		else
+			w.img.ImageTransparency = 1
+		end
+	end
+	-- 3D splashes: pop in after the void opens, slowly turn, and splash again now and then
+	if inside then
+		for _, sp in ipairs(self.splats) do
+			if now - d.startAt >= sp.again then
+				sp.again = t + 3 + math.random() * 4
+				sp.at = t
+			end
+			local k = t - sp.at
+			local pop = k < 0 and 0 or outBack(clamp01(k / 0.3))
+			sp.sc.Scale = math.max(0, pop) * (1 + 0.04 * math.sin(now * 2 + sp.spin))
+			sp.img.Rotation += sp.spin * dt
+			sp.img.ImageTransparency = k < 0 and 1 or 0.05 + 0.25 * clamp01((k - 1.5) / 2)
+		end
 	end
 	-- victim: infinite information
 	if self.victim and t >= open then
@@ -914,7 +1088,17 @@ function Dom:update(dt)
 			self.flashUntil = now + 0.06
 		end
 		if self.flashUntil and now < self.flashUntil then
-			fl = math.max(fl, 0.55)
+			fl = math.max(fl, 0.35)
+			if not self.vsplashOn then
+				self.vsplashOn = true
+				self.vsplash.Image = IMG["splash_" .. math.random(1, 4)]
+				self.vsplash.Position = UDim2.fromScale(0.2 + math.random() * 0.6, 0.2 + math.random() * 0.6)
+				self.vsplash.Rotation = math.random(0, 360)
+			end
+			self.vsplash.ImageTransparency = 0.15
+		else
+			self.vsplashOn = false
+			self.vsplash.ImageTransparency = math.min(1, self.vsplash.ImageTransparency + dt * 4)
 		end
 		if self.blur then
 			self.blur.Size = 5 + 4 * math.sin(now * 7)
@@ -997,11 +1181,11 @@ end)
 
 return VFX
 ]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX6"><Properties><string name="Name">DomainCinematic</string><ProtectedString name="Source"><![CDATA[--!nonstrict
--- DomainCinematic: a "cena" antes do domínio, no personagem que lança (R15).
---   0.00  close no rosto
---   0.10  a mão esquerda vai até os olhos e puxa a máscara/venda pra cima (0.55–0.85)
---   0.80  os olhos acendem (brilho + faíscas)
---   0.95  close na mão direita: sobe até o queixo com os dedos cruzados
+-- DomainCinematic: a "cena" antes do domínio, no personagem que lança (R15). Referência: JJK ep. 7 (Gojo × Jogo).
+--   0.00  close no rosto (três quartos)
+--   0.10  a mão esquerda engancha a venda nos olhos e puxa pra BAIXO (0.50–0.80): ela fica pendurada no pescoço
+--   0.72  close extremo nos olhos: acendem azuis (brilho + faíscas)
+--   1.05  de frente: a mão direita sobe na frente do rosto com os dedos cruzados
 --   1.35  "tic" dos dedos (flash) — começa o túnel e o "領域展開"
 --   1.70  câmera abre e recua enquanto a esfera explode
 --   2.70  o domínio fecha; a câmera volta para o jogador (o flash branco esconde o corte)
@@ -1042,15 +1226,16 @@ end
 local REST = { 0, 0, 0 }
 -- angles in degrees applied as C0 * CFrame.Angles(x, y, z); solved with forward kinematics on a standard R15 rig
 local function poses(TL)
-	local sign, expand, open = TL.sign, TL.expand, TL.open
+	local expand, open = TL.expand, TL.open
 	return {
-		-- grab at the eyes, then pull up with the elbow out to the side (the forearm clears the face for the eye reveal)
-		LeftShoulder = { { 0.1, REST }, { 0.4, { 100, -10, 60 } }, { 0.55, { 100, -10, 60 } }, { 0.85, { 180, -80, 40 } }, { 1.2, { 180, -80, 40 } }, { 1.5, REST } },
-		LeftElbow = { { 0.1, REST }, { 0.4, { 70, 0, 0 } }, { 0.55, { 70, 0, 0 } }, { 0.85, { 40, 0, 0 } }, { 1.2, { 40, 0, 0 } }, { 1.5, REST } },
-		RightShoulder = { { 0.95, REST }, { 1.2, { 80, 10, -60 } }, { expand + 0.6, { 80, 10, -60 } }, { open, REST } },
-		RightElbow = { { 0.95, REST }, { 1.2, { 70, 0, 0 } }, { expand + 0.6, { 70, 0, 0 } }, { open, REST } },
-		Neck = { { 0, REST }, { 0.45, { -8, 0, 0 } }, { 0.8, { 5, 0, 0 } }, { sign, { 0, 0, 0 } }, { expand, { 6, 0, 0 } }, { open, REST } },
-		Waist = { { 0, REST }, { 0.95, REST }, { 1.2, { 0, -12, 0 } }, { expand + 0.6, { 0, -12, 0 } }, { open, REST } },
+		-- hook the blindfold at the eyes (hand at eye level), pull it down to the chin, hand drops away
+		LeftShoulder = { { 0.1, REST }, { 0.4, { 110, -10, 60 } }, { 0.5, { 110, -10, 60 } }, { 0.8, { 90, -50, 60 } }, { 0.92, { 90, -50, 60 } }, { 1.25, REST } },
+		LeftElbow = { { 0.1, REST }, { 0.4, { 60, 0, 0 } }, { 0.5, { 60, 0, 0 } }, { 0.8, { 90, 0, 0 } }, { 0.92, { 90, 0, 0 } }, { 1.25, REST } },
+		-- hand sign beside the right cheek, fingers up next to the eyes (face stays visible)
+		RightShoulder = { { 1.0, REST }, { 1.25, { 80, 0, -80 } }, { expand + 0.6, { 80, 0, -80 } }, { open, REST } },
+		RightElbow = { { 1.0, REST }, { 1.25, { 110, 0, 0 } }, { expand + 0.6, { 110, 0, 0 } }, { open, REST } },
+		Neck = { { 0, REST }, { 0.45, { -6, 0, 0 } }, { 0.85, { 4, 0, 0 } }, { 1.3, REST }, { expand, { 6, 0, 0 } }, { open, REST } },
+		Waist = { { 0, REST }, { 1.0, REST }, { 1.25, { 0, -8, 0 } }, { expand + 0.6, { 0, -8, 0 } }, { open, REST } },
 	}
 end
 
@@ -1099,7 +1284,8 @@ function Cine.new(d, profile, isViewer, TL, IMG)
 	-- glowing eyes, shown when the mask comes off
 	local hs = self.head.Size
 	self.eyes = {}
-	for _, x in ipairs({ -0.19, 0.19 }) do
+	local ep = self.profile.eyes or Vector2.new(0.16, 0.1)
+	for _, sx in ipairs({ -1, 1 }) do
 		local e = Instance.new("Part")
 		e.Name = "PVDomainEye"
 		e.Size = Vector3.new(hs.X * 0.17, hs.Y * 0.07, 0.05)
@@ -1109,7 +1295,7 @@ function Cine.new(d, profile, isViewer, TL, IMG)
 		e.Transparency = 1
 		local w = Instance.new("Weld")
 		w.Part0, w.Part1 = self.head, e
-		w.C0 = CFrame.new(x * hs.X / 1.2, hs.Y * 0.1, -hs.Z / 2 - 0.01)
+		w.C0 = CFrame.new(sx * ep.X * hs.X, ep.Y * hs.Y, -hs.Z / 2 - 0.01)
 		w.Parent = e
 		e.Parent = caster
 		table.insert(self.eyes, e)
@@ -1117,7 +1303,7 @@ function Cine.new(d, profile, isViewer, TL, IMG)
 	end
 	local att = Instance.new("Attachment")
 	att.Name = "PVDomainEyes"
-	att.Position = Vector3.new(0, hs.Y * 0.1, -hs.Z / 2 - 0.1)
+	att.Position = Vector3.new(0, ep.Y * hs.Y, -hs.Z / 2 - 0.1)
 	att.Parent = self.head
 	table.insert(self.made, att)
 	self.eyeLight = Instance.new("PointLight")
@@ -1184,7 +1370,7 @@ function Cine:findMask()
 	end
 end
 
--- head-space offset of the mask while it is pulled up (0 = on the eyes, 1 = pushed up on the hair)
+-- head-space offset of the blindfold while it is pulled down (0 = on the eyes, 1 = hanging on the neck)
 function Cine:setMask(k)
 	local m = self.mask
 	if not m then
@@ -1194,14 +1380,11 @@ function Cine:setMask(k)
 		m.part.LocalTransparencyModifier = k
 		return
 	end
-	local off = CFrame.new(0, self.head.Size.Y * 0.42 * k, self.head.Size.Z * 0.06 * k) * CFrame.Angles(math.rad(-28 * k), 0, 0)
-	if m.headSide then
-		-- Part1 is the head: head = part0 * C0 * C1^-1  -> part0 = head * C1 * C0^-1 ; offset the head-side frame (C1)
-		m.weld[m.prop] = off * m.base
-	else
-		-- Part0 is the head: part1 = head * C0 * C1^-1 ; offset C0 in head space
-		m.weld[m.prop] = off * m.base
-	end
+	local drop = self.profile.maskDrop or 0.62
+	local off = CFrame.new(0, -self.head.Size.Y * drop * k, -self.head.Size.Z * 0.04 * k) * CFrame.Angles(math.rad(12 * k), 0, 0)
+	-- m.prop is the head-side frame of the weld (C1 when Part1 is the head, C0 when Part0 is), so
+	-- pre-multiplying it moves the blindfold in head space
+	m.weld[m.prop] = off * m.base
 end
 
 local function lookAt(from, to)
@@ -1219,21 +1402,21 @@ function Cine:update(t)
 		local a = track(self.tracks[name], t)
 		j.motor.C0 = j.c0 * CFrame.Angles(math.rad(a[1]), math.rad(a[2]), math.rad(a[3]))
 	end
-	-- mask: pulled up between 0.55 and 0.85, stays up during the domain
-	self:setMask(smooth((t - 0.55) / 0.3))
+	-- blindfold: pulled down between 0.50 and 0.80, stays on the neck during the domain
+	self:setMask(smooth((t - 0.5) / 0.3))
 	-- eyes
-	local eyeOn = clamp01((t - 0.78) / 0.12)
+	local eyeOn = clamp01((t - 0.66) / 0.1)
 	for _, e in ipairs(self.eyes) do
 		e.Transparency = 1 - eyeOn
 	end
-	self.eyeLight.Brightness = eyeOn * (0.8 + 1.6 * math.max(0, 1 - (t - 0.8) / 0.5))
-	if not self.burst and t >= 0.8 then
+	self.eyeLight.Brightness = eyeOn * (0.8 + 1.6 * math.max(0, 1 - (t - 0.72) / 0.5))
+	if not self.burst and t >= 0.74 then
 		self.burst = true
 		self.eyeBurst:Emit(24)
 	end
 	-- fingers
 	if self.fingers then
-		local on = t >= 1.05 and t <= TL.expand + 0.75
+		local on = t >= 1.1 and t <= TL.expand + 0.75
 		for _, f in ipairs(self.fingers) do
 			f.Transparency = on and 0 or 1
 		end
@@ -1243,22 +1426,29 @@ function Cine:update(t)
 		local cam = workspace.CurrentCamera
 		local R = self.rootCF
 		local look, right, up = R.LookVector, R.RightVector, Vector3.new(0, 1, 0)
-		if t < 0.95 then
-			-- face close-up, three-quarter from the character's right so the left hand pulling the blindfold reads
-			local p = t / 0.95
+		if t < 0.72 then
+			-- face close-up, three-quarter from the character's right so the hand hooking the blindfold reads
+			local p = t / 0.72
 			local f = self.head.CFrame
 			local dist = lerp(3.4, 2.8, outQuad(p))
 			local from = f.Position + (f.LookVector * 0.82 + f.RightVector * 0.8).Unit * dist + Vector3.new(0, 0.12, 0)
-			cam.CFrame = lookAt(from, f.Position + Vector3.new(0, 0.05 + 0.15 * smooth((t - 0.55) / 0.3), 0))
+			cam.CFrame = lookAt(from, f.Position + Vector3.new(0, 0.05 - 0.12 * smooth((t - 0.5) / 0.3), 0))
 			cam.FieldOfView = 40
+		elseif t < 1.05 then
+			-- extreme close-up on the eyes as they light up
+			local p = (t - 0.72) / 0.33
+			local f = self.head.CFrame
+			local eyeH = (self.profile.eyes and self.profile.eyes.Y or 0.1) * self.head.Size.Y
+			local eyeP = f.Position + f.UpVector * eyeH
+			cam.CFrame = lookAt(eyeP + f.LookVector * lerp(2.3, 2.0, outQuad(p)) + f.RightVector * 0.05, eyeP)
+			cam.FieldOfView = lerp(32, 28, p)
 		elseif t < TL.expand then
-			-- the hand rises into frame in front of the chin; the face stays behind it
-			local p = (t - 0.95) / (TL.expand - 0.95)
-			local rp = self.root.Position
-			local hand = self.rhand and self.rhand.Position or (self.head.Position - up * 0.4 + look * 0.8)
-			local chest = rp + up * 1.0 + look * 0.8
-			local focus = chest:Lerp(hand, smooth((t - 0.95) / 0.3)):Lerp(self.head.Position, 0.3)
-			local from = rp + look * lerp(3.0, 2.5, outQuad(p)) + right * 1.0 + up * 1.4
+			-- from the front: the hand rises in front of the face, crossed fingers beside the glowing eyes
+			local p = (t - 1.05) / (TL.expand - 1.05)
+			local f = self.head.CFrame
+			local hand = self.rhand and self.rhand.Position or (f.Position + look * 0.8)
+			local focus = f.Position:Lerp(hand, 0.3 * smooth((t - 1.05) / 0.25))
+			local from = f.Position + look * lerp(3.0, 2.6, outQuad(p)) - right * 0.3 + up * 0.05
 			cam.CFrame = lookAt(from, focus)
 			local punch = math.max(0, 1 - math.abs(t - TL.sign - 0.06) / 0.14)
 			cam.FieldOfView = 44 - 8 * punch

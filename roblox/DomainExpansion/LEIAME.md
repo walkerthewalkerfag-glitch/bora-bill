@@ -1,107 +1,97 @@
 # Expansão de Domínio: Vazio Infinito (Roblox)
 
-É um golpe de **personagem**: só quem tem esse personagem consegue lançar. Pode ser um jogador ou um NPC/boss disparado pelo servidor.
+É um golpe de **personagem**, feito para ficar no modelo do Gojo do seu jogo. Referência: JJK episódio 7 (Gojo × Jogo).
 
 ![sequência](preview_domain.jpg)
 
-O `preview_domain.gif` mostra a sequência animada.
+O `preview_domain.gif` mostra a sequência animada. É uma prévia 3D com um boneco de blocos no lugar do seu Gojo.
 
 ## A cena (tempos em `Config.Timeline`)
 
 | Tempo | O que acontece |
 |---|---|
 | 0.0 s | Close no rosto, de três quartos |
-| 0.1–0.85 s | A mão esquerda vai até os olhos e puxa a venda pra cima |
-| 0.8 s | Os olhos acendem (brilho, luz e faíscas) |
-| 0.95–1.7 s | Close na mão direita subindo até o queixo, com os dedos cruzados |
-| 1.35 s | "Tic" dos dedos: flash, túnel de linhas de velocidade e **領域展開 / EXPANSÃO DE DOMÍNIO** |
-| 1.7–2.7 s | A cúpula preta explode a partir do personagem e a câmera recua na frente da parede |
-| 2.7 s | O domínio fecha (flash branco). Os alvos travam e a câmera volta pro jogador |
-| 2.7–3.4 s | Dentro: céu do vazio, névoa, chão espelhado e o **buraco negro** abrindo atrás de quem lançou. Aparece **無量空処 / VAZIO INFINITO** |
-| até o fim | Quem foi pego tem a tela tomada por ruído de informação, flashes, blur e tremor, e perde o controle. Todos veem faíscas na cabeça dessa pessoa |
-| fim | O vazio quebra, a cúpula encolhe, a venda volta pros olhos e a iluminação volta ao normal |
+| 0.1–0.8 s | A mão esquerda engancha a venda nos olhos e **puxa pra baixo**; ela fica pendurada no pescoço |
+| 0.72 s | **Close extremo nos olhos**, que acendem azuis (brilho, luz e faíscas) |
+| 1.05 s | De frente: a mão direita sobe **ao lado do rosto** com os dedos cruzados |
+| 1.35 s | "Tic" dos dedos: túnel de linhas de velocidade e **領域展開 / EXPANSÃO DE DOMÍNIO** |
+| 1.7–2.7 s | A cúpula preta explode no mapa e a câmera recua na frente da parede |
+| 2.7 s | **Respingo branco** cobre a tela. Quem lançou e os alvos vão para a **dimensão** |
+| na dimensão | Céu do vazio, chão espelhado como água, **respingos brancos** estourando pelo espaço, correntes de luz branca, poeira de estrelas e o **buraco negro** atrás do Gojo. Aparece **無量空処 / VAZIO INFINITO** |
+| alvos | Travados e sem controle. A tela fica tomada por ruído de informação, com flashes, **respingos na tela**, blur e tremor. Todos veem faíscas na cabeça deles |
+| fim | O vazio quebra, todos voltam pro lugar exato onde estavam no mapa e a venda volta pros olhos |
 
-Quem está perto (até `Radius × CinematicRange`) vê a cena pela câmera. Quem está longe vê a cúpula preta de fora.
+**Sobre a dimensão:**
+- Todo mundo dentro do raio na hora que o domínio fecha é levado para uma área longe do mapa (`Config.DimensionOrigin`), mantendo a distância que tinha do Gojo.
+- No mapa fica só a cúpula preta, que é o que quem está de fora vê.
+- Com `Config.UseDimension = false`, o domínio acontece dentro da cúpula, no próprio mapa.
 
-Detalhes técnicos da pose:
-- A pose é gerada girando as juntas do R15 (`Motor6D.C0`) em todos os clientes com o mesmo relógio, então **não precisa subir animação**. Os ângulos foram calculados para a mão parar na frente do rosto, não dentro da cabeça.
+**Sobre a pose:**
+- É gerada girando as juntas do R15 (`Motor6D.C0`) em todos os clientes com o mesmo relógio, então **não precisa subir animação**.
+- Os ângulos foram calculados para as mãos pararem na frente dos olhos e ao lado do rosto, não dentro da cabeça.
 - Os dedos cruzados são duas peças soldadas na mão.
-- Se você tiver uma animação própria, coloque em `Config.CasterAnimationId`.
 
 ## O que tem aqui
 
 | Arquivo | Para que serve |
 |---|---|
 | `PocketVanguardsDomain.rbxmx` | Pasta `PVDomain`: `DomainServer` (Server), `DomainClient` (Client), `DomainConfig`, `DomainVFX`, `DomainCinematic` |
-| `images/` | 14 imagens: 6 faces do céu, 4 camadas do buraco negro, linhas, brilho, partícula e ruído |
-| `sounds/` | 5 sons (tudo síntese original) |
-| `preview_domain.jpg` / `.gif` | Prévia 3D da sequência |
+| `SatoruPlaceholder.rbxmx` | **Placeholder** do Gojo (R15, cabelo branco, venda). Tem um botão "Testar Expansão de Domínio" (segure E). **Apague quando o seu Gojo estiver no jogo** |
+| `images/` | 18 imagens: céu (6), buraco negro (4), respingos (4), linhas, brilho, partícula e ruído |
+| `sounds/` | 5 sons (síntese original): cena, lançamento, vazio em loop, sobrecarga em loop, quebra |
 | `src/` + `default.project.json` | Para Rojo |
-| `tools/` | Scripts que geraram as imagens e os sons (para refazer com outras cores) |
-
-Os sons:
-- `pv_domain_intro`: venda, olhos e estalo dos dedos
-- `pv_domain_cast`: subida até o impacto quando o domínio fecha
-- `pv_void_loop`: ambiente do vazio, em loop
-- `pv_void_overload`: o que quem foi pego escuta, em loop
-- `pv_domain_end`: o vazio quebrando
+| `tools/` | Scripts que geraram imagens, sons e o placeholder |
 
 ## Instalar
 
-1. Arraste `PocketVanguardsDomain.rbxmx` para **ReplicatedStorage**. Os scripts já vêm com `RunContext`, então rodam dali.
-2. **Asset Manager → Bulk Import:** as 14 imagens e os 5 sons.
-3. Cole os IDs em `ReplicatedStorage.PVDomain.DomainConfig`, em `Images` e `Sounds`.
+1. Arraste `PocketVanguardsDomain.rbxmx` para **ReplicatedStorage**.
+2. **Asset Manager → Bulk Import:** as 18 imagens e os 5 sons. Cole os IDs em `PVDomain.DomainConfig`, em `Images` e `Sounds`.
+3. Para testar: arraste `SatoruPlaceholder.rbxmx` para **Workspace**, dê Play, chegue perto e segure **E**.
 
-## Colocar o golpe num personagem
+## Colocar no seu Gojo
 
-Escolha **um** jeito:
-
-- **Pelo nome do modelo:** em `DomainConfig`, `Config.Characters` já tem um exemplo:
-  ```lua
-  Config.Characters = {
-      Satoru = { mask = "Blindfold", eyeColor = Color3.fromRGB(110, 220, 255), fakeMask = true },
-  }
-  ```
-  Troque `Satoru` pelo `Name` do modelo do personagem.
-- **Pelo atributo `PVCharacter`:** se o personagem do jogador troca de modelo, ponha `PVCharacter = "Satoru"` no modelo e a chave da tabela passa a valer por ele.
-- **Pelo atributo `PVDomainMove = true`:** o personagem usa o `Config.DefaultProfile`.
-
-O que cada campo do perfil faz:
-- `mask`: nome do Accessory (ou peça soldada na cabeça) que é a venda ou máscara. É ela que a mão puxa pra cima.
-- `fakeMask = true`: se o personagem não tiver venda, cria uma preta só durante o golpe.
-- `eyeColor`: cor do brilho dos olhos.
-
-Personagem sem perfil não consegue lançar (`Config.RequireCharacter = true`).
+1. **Nome:** o modelo do Gojo precisa se chamar `Satoru`, ou ter o atributo `PVCharacter = "Satoru"`. Se preferir outro nome, troque a chave em `Config.Characters`.
+2. **Venda:** a venda precisa ser um Accessory (ou peça soldada na cabeça) com o nome que está em `mask` (padrão: `Blindfold`).
+3. **Ajuste o perfil ao seu modelo:**
+   ```lua
+   Satoru = {
+       mask = "Blindfold",                     -- nome da venda
+       eyeColor = Color3.fromRGB(110, 220, 255),
+       eyes = Vector2.new(0.16, 0.1),          -- olhos: afastamento e altura (fração do tamanho da Head)
+       maskDrop = 0.62,                        -- quanto a venda desce (fração da altura da cabeça)
+       fakeMask = true,                        -- cria uma venda preta se o modelo não tiver
+   },
+   ```
+4. **Apague o placeholder.**
 
 ## Lançar
 
-- **Jogador:** tecla **G**, **Y** no controle ou o botão redondo 領域 no celular. Troque em `Config.Key`, `GamepadKey` e `TouchButton`.
-- **Servidor (NPC, boss ou o seu sistema de batalha):**
+- **Jogador com o Gojo:** tecla **G**, **Y** no controle ou o botão 領域 no celular. Com `Config.AllowPlayers = false`, só o servidor lança.
+- **Servidor (boss, NPC ou sistema de batalha):**
   ```lua
   local PVDomain = game.ReplicatedStorage:WaitForChild("PVDomain")
-  PVDomain.CastDomain:Fire(modeloDoPersonagem)
-
-  PVDomain.DomainStarted.Event:Connect(function(id, caster, alvos)
-      -- ex.: batalha por turnos: alvos perdem 2 turnos
-  end)
+  PVDomain.CastDomain:Fire(modeloDoGojo)
+  PVDomain.DomainStarted.Event:Connect(function(id, caster, alvos) end) -- ex.: alvos perdem turnos
   PVDomain.DomainEnded.Event:Connect(function(id, caster, alvos) end)
   ```
-- **Só pelo seu sistema:** com `Config.AllowPlayers = false`, a tecla não faz nada e só o servidor lança. Use isso se o golpe tiver que vir pela tela de Golpes, como a ultimate do lutador.
 
 ## Regras (`DomainConfig`)
 
 - `Radius = 60`: tamanho da cúpula.
-- `Duration = 10`: segundos com o domínio fechado.
+- `Duration = 10`: segundos dentro do vazio.
 - `Cooldown = 30`: conta por jogador, não reseta ao renascer.
-- `AnchorTargets = true`: quem é pego fica parado de verdade, igual NPCs. As velocidades voltam no fim.
-- Se quem lançou morrer ou sair, o domínio acaba na hora e tudo volta ao normal.
-- Quem entra no jogo no meio de um domínio também vê a cúpula (`sync`).
+- `AnchorTargets = true`: alvos ficam parados de verdade.
+- Se o Gojo morrer ou sair, o domínio acaba na hora e todos voltam pro mapa.
+- Vários domínios ao mesmo tempo ficam em dimensões separadas (`DimensionSpacing`).
+- Jogos com **StreamingEnabled**: o servidor pede o carregamento da dimensão antes de levar os jogadores.
 
 ## Observações
 
-- **Precisa de R15** para a pose. Em R6 a câmera e o domínio funcionam, mas os braços não se mexem.
-- **Nomes:** "Vazio Infinito" e 無量空処 são de Jujutsu Kaisen. Se o jogo for público, dá para trocar os textos em `Config.Title` por um nome próprio do seu jogo. Visual, sons e código são originais.
+- **Precisa de R15** para a pose. Em R6 a câmera, a dimensão e os efeitos funcionam, mas os braços não se mexem.
+- **Área da dimensão:** fica em `Y = 4000`. Se o seu mapa usar essa área, troque `DimensionOrigin`.
+- **Nomes:** "Vazio Infinito" e 無量空処 são de Jujutsu Kaisen. Para jogo público, dá pra trocar em `Config.Title`. Visual, sons, modelo e código são originais.
 - **O que foi testado:**
-  - Num emulador de Roblox (lune), com servidor e cliente juntos: **47 checagens passaram**. Cobrem a cena, a câmera, pose, venda, olhos e dedos, a trava dos alvos, o céu e a névoa, quem fica fora e quem entra de novo, o fim, a morte no meio da cena e a limpeza de tudo.
-  - A prévia 3D usa a mesma matemática da cena.
-  - O Roblox Studio em si não roda aqui, então o ajuste fino do enquadramento é no seu Play: distâncias e ângulos das tomadas ficam em `Cine:update`, no `DomainCinematic`.
+  - Num emulador de Roblox (lune), com servidor e cliente juntos: **58 checagens**, rodadas com um rig de teste e **com o próprio `SatoruPlaceholder.rbxmx` carregado**.
+  - Cobrem a cena, a câmera, a venda descendo, os olhos, os dedos, a ida e a volta da dimensão, os respingos e as correntes, a trava dos alvos, a iluminação, a morte no meio da cena e a limpeza.
+  - A prévia 3D usa a mesma matemática.
+  - O Studio em si não roda aqui. O ajuste fino do enquadramento para o seu modelo fica em `Cine:update` (`DomainCinematic`).

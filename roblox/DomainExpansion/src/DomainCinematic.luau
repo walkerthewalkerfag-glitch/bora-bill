@@ -1,9 +1,9 @@
 --!nonstrict
--- DomainCinematic: a "cena" antes do domínio, no personagem que lança (R15).
---   0.00  close no rosto
---   0.10  a mão esquerda vai até os olhos e puxa a máscara/venda pra cima (0.55–0.85)
---   0.80  os olhos acendem (brilho + faíscas)
---   0.95  close na mão direita: sobe até o queixo com os dedos cruzados
+-- DomainCinematic: a "cena" antes do domínio, no personagem que lança (R15). Referência: JJK ep. 7 (Gojo × Jogo).
+--   0.00  close no rosto (três quartos)
+--   0.10  a mão esquerda engancha a venda nos olhos e puxa pra BAIXO (0.50–0.80): ela fica pendurada no pescoço
+--   0.72  close extremo nos olhos: acendem azuis (brilho + faíscas)
+--   1.05  de frente: a mão direita sobe na frente do rosto com os dedos cruzados
 --   1.35  "tic" dos dedos (flash) — começa o túnel e o "領域展開"
 --   1.70  câmera abre e recua enquanto a esfera explode
 --   2.70  o domínio fecha; a câmera volta para o jogador (o flash branco esconde o corte)
@@ -44,15 +44,16 @@ end
 local REST = { 0, 0, 0 }
 -- angles in degrees applied as C0 * CFrame.Angles(x, y, z); solved with forward kinematics on a standard R15 rig
 local function poses(TL)
-	local sign, expand, open = TL.sign, TL.expand, TL.open
+	local expand, open = TL.expand, TL.open
 	return {
-		-- grab at the eyes, then pull up with the elbow out to the side (the forearm clears the face for the eye reveal)
-		LeftShoulder = { { 0.1, REST }, { 0.4, { 100, -10, 60 } }, { 0.55, { 100, -10, 60 } }, { 0.85, { 180, -80, 40 } }, { 1.2, { 180, -80, 40 } }, { 1.5, REST } },
-		LeftElbow = { { 0.1, REST }, { 0.4, { 70, 0, 0 } }, { 0.55, { 70, 0, 0 } }, { 0.85, { 40, 0, 0 } }, { 1.2, { 40, 0, 0 } }, { 1.5, REST } },
-		RightShoulder = { { 0.95, REST }, { 1.2, { 80, 10, -60 } }, { expand + 0.6, { 80, 10, -60 } }, { open, REST } },
-		RightElbow = { { 0.95, REST }, { 1.2, { 70, 0, 0 } }, { expand + 0.6, { 70, 0, 0 } }, { open, REST } },
-		Neck = { { 0, REST }, { 0.45, { -8, 0, 0 } }, { 0.8, { 5, 0, 0 } }, { sign, { 0, 0, 0 } }, { expand, { 6, 0, 0 } }, { open, REST } },
-		Waist = { { 0, REST }, { 0.95, REST }, { 1.2, { 0, -12, 0 } }, { expand + 0.6, { 0, -12, 0 } }, { open, REST } },
+		-- hook the blindfold at the eyes (hand at eye level), pull it down to the chin, hand drops away
+		LeftShoulder = { { 0.1, REST }, { 0.4, { 110, -10, 60 } }, { 0.5, { 110, -10, 60 } }, { 0.8, { 90, -50, 60 } }, { 0.92, { 90, -50, 60 } }, { 1.25, REST } },
+		LeftElbow = { { 0.1, REST }, { 0.4, { 60, 0, 0 } }, { 0.5, { 60, 0, 0 } }, { 0.8, { 90, 0, 0 } }, { 0.92, { 90, 0, 0 } }, { 1.25, REST } },
+		-- hand sign beside the right cheek, fingers up next to the eyes (face stays visible)
+		RightShoulder = { { 1.0, REST }, { 1.25, { 80, 0, -80 } }, { expand + 0.6, { 80, 0, -80 } }, { open, REST } },
+		RightElbow = { { 1.0, REST }, { 1.25, { 110, 0, 0 } }, { expand + 0.6, { 110, 0, 0 } }, { open, REST } },
+		Neck = { { 0, REST }, { 0.45, { -6, 0, 0 } }, { 0.85, { 4, 0, 0 } }, { 1.3, REST }, { expand, { 6, 0, 0 } }, { open, REST } },
+		Waist = { { 0, REST }, { 1.0, REST }, { 1.25, { 0, -8, 0 } }, { expand + 0.6, { 0, -8, 0 } }, { open, REST } },
 	}
 end
 
@@ -101,7 +102,8 @@ function Cine.new(d, profile, isViewer, TL, IMG)
 	-- glowing eyes, shown when the mask comes off
 	local hs = self.head.Size
 	self.eyes = {}
-	for _, x in ipairs({ -0.19, 0.19 }) do
+	local ep = self.profile.eyes or Vector2.new(0.16, 0.1)
+	for _, sx in ipairs({ -1, 1 }) do
 		local e = Instance.new("Part")
 		e.Name = "PVDomainEye"
 		e.Size = Vector3.new(hs.X * 0.17, hs.Y * 0.07, 0.05)
@@ -111,7 +113,7 @@ function Cine.new(d, profile, isViewer, TL, IMG)
 		e.Transparency = 1
 		local w = Instance.new("Weld")
 		w.Part0, w.Part1 = self.head, e
-		w.C0 = CFrame.new(x * hs.X / 1.2, hs.Y * 0.1, -hs.Z / 2 - 0.01)
+		w.C0 = CFrame.new(sx * ep.X * hs.X, ep.Y * hs.Y, -hs.Z / 2 - 0.01)
 		w.Parent = e
 		e.Parent = caster
 		table.insert(self.eyes, e)
@@ -119,7 +121,7 @@ function Cine.new(d, profile, isViewer, TL, IMG)
 	end
 	local att = Instance.new("Attachment")
 	att.Name = "PVDomainEyes"
-	att.Position = Vector3.new(0, hs.Y * 0.1, -hs.Z / 2 - 0.1)
+	att.Position = Vector3.new(0, ep.Y * hs.Y, -hs.Z / 2 - 0.1)
 	att.Parent = self.head
 	table.insert(self.made, att)
 	self.eyeLight = Instance.new("PointLight")
@@ -186,7 +188,7 @@ function Cine:findMask()
 	end
 end
 
--- head-space offset of the mask while it is pulled up (0 = on the eyes, 1 = pushed up on the hair)
+-- head-space offset of the blindfold while it is pulled down (0 = on the eyes, 1 = hanging on the neck)
 function Cine:setMask(k)
 	local m = self.mask
 	if not m then
@@ -196,14 +198,11 @@ function Cine:setMask(k)
 		m.part.LocalTransparencyModifier = k
 		return
 	end
-	local off = CFrame.new(0, self.head.Size.Y * 0.42 * k, self.head.Size.Z * 0.06 * k) * CFrame.Angles(math.rad(-28 * k), 0, 0)
-	if m.headSide then
-		-- Part1 is the head: head = part0 * C0 * C1^-1  -> part0 = head * C1 * C0^-1 ; offset the head-side frame (C1)
-		m.weld[m.prop] = off * m.base
-	else
-		-- Part0 is the head: part1 = head * C0 * C1^-1 ; offset C0 in head space
-		m.weld[m.prop] = off * m.base
-	end
+	local drop = self.profile.maskDrop or 0.62
+	local off = CFrame.new(0, -self.head.Size.Y * drop * k, -self.head.Size.Z * 0.04 * k) * CFrame.Angles(math.rad(12 * k), 0, 0)
+	-- m.prop is the head-side frame of the weld (C1 when Part1 is the head, C0 when Part0 is), so
+	-- pre-multiplying it moves the blindfold in head space
+	m.weld[m.prop] = off * m.base
 end
 
 local function lookAt(from, to)
@@ -221,21 +220,21 @@ function Cine:update(t)
 		local a = track(self.tracks[name], t)
 		j.motor.C0 = j.c0 * CFrame.Angles(math.rad(a[1]), math.rad(a[2]), math.rad(a[3]))
 	end
-	-- mask: pulled up between 0.55 and 0.85, stays up during the domain
-	self:setMask(smooth((t - 0.55) / 0.3))
+	-- blindfold: pulled down between 0.50 and 0.80, stays on the neck during the domain
+	self:setMask(smooth((t - 0.5) / 0.3))
 	-- eyes
-	local eyeOn = clamp01((t - 0.78) / 0.12)
+	local eyeOn = clamp01((t - 0.66) / 0.1)
 	for _, e in ipairs(self.eyes) do
 		e.Transparency = 1 - eyeOn
 	end
-	self.eyeLight.Brightness = eyeOn * (0.8 + 1.6 * math.max(0, 1 - (t - 0.8) / 0.5))
-	if not self.burst and t >= 0.8 then
+	self.eyeLight.Brightness = eyeOn * (0.8 + 1.6 * math.max(0, 1 - (t - 0.72) / 0.5))
+	if not self.burst and t >= 0.74 then
 		self.burst = true
 		self.eyeBurst:Emit(24)
 	end
 	-- fingers
 	if self.fingers then
-		local on = t >= 1.05 and t <= TL.expand + 0.75
+		local on = t >= 1.1 and t <= TL.expand + 0.75
 		for _, f in ipairs(self.fingers) do
 			f.Transparency = on and 0 or 1
 		end
@@ -245,22 +244,29 @@ function Cine:update(t)
 		local cam = workspace.CurrentCamera
 		local R = self.rootCF
 		local look, right, up = R.LookVector, R.RightVector, Vector3.new(0, 1, 0)
-		if t < 0.95 then
-			-- face close-up, three-quarter from the character's right so the left hand pulling the blindfold reads
-			local p = t / 0.95
+		if t < 0.72 then
+			-- face close-up, three-quarter from the character's right so the hand hooking the blindfold reads
+			local p = t / 0.72
 			local f = self.head.CFrame
 			local dist = lerp(3.4, 2.8, outQuad(p))
 			local from = f.Position + (f.LookVector * 0.82 + f.RightVector * 0.8).Unit * dist + Vector3.new(0, 0.12, 0)
-			cam.CFrame = lookAt(from, f.Position + Vector3.new(0, 0.05 + 0.15 * smooth((t - 0.55) / 0.3), 0))
+			cam.CFrame = lookAt(from, f.Position + Vector3.new(0, 0.05 - 0.12 * smooth((t - 0.5) / 0.3), 0))
 			cam.FieldOfView = 40
+		elseif t < 1.05 then
+			-- extreme close-up on the eyes as they light up
+			local p = (t - 0.72) / 0.33
+			local f = self.head.CFrame
+			local eyeH = (self.profile.eyes and self.profile.eyes.Y or 0.1) * self.head.Size.Y
+			local eyeP = f.Position + f.UpVector * eyeH
+			cam.CFrame = lookAt(eyeP + f.LookVector * lerp(2.3, 2.0, outQuad(p)) + f.RightVector * 0.05, eyeP)
+			cam.FieldOfView = lerp(32, 28, p)
 		elseif t < TL.expand then
-			-- the hand rises into frame in front of the chin; the face stays behind it
-			local p = (t - 0.95) / (TL.expand - 0.95)
-			local rp = self.root.Position
-			local hand = self.rhand and self.rhand.Position or (self.head.Position - up * 0.4 + look * 0.8)
-			local chest = rp + up * 1.0 + look * 0.8
-			local focus = chest:Lerp(hand, smooth((t - 0.95) / 0.3)):Lerp(self.head.Position, 0.3)
-			local from = rp + look * lerp(3.0, 2.5, outQuad(p)) + right * 1.0 + up * 1.4
+			-- from the front: the hand rises in front of the face, crossed fingers beside the glowing eyes
+			local p = (t - 1.05) / (TL.expand - 1.05)
+			local f = self.head.CFrame
+			local hand = self.rhand and self.rhand.Position or (f.Position + look * 0.8)
+			local focus = f.Position:Lerp(hand, 0.3 * smooth((t - 1.05) / 0.25))
+			local from = f.Position + look * lerp(3.0, 2.6, outQuad(p)) - right * 0.3 + up * 0.05
 			cam.CFrame = lookAt(from, focus)
 			local punch = math.max(0, 1 - math.abs(t - TL.sign - 0.06) / 0.14)
 			cam.FieldOfView = 44 - 8 * punch

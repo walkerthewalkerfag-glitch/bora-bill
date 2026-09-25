@@ -4,7 +4,8 @@
 --   0.00s  cena: close no rosto, tira a venda, olhos acendem, close nos dedos cruzados (DomainCinematic)
 --   1.35s  estalo dos dedos: túnel de linhas de velocidade + "領域展開 / EXPANSÃO DE DOMÍNIO"
 --   1.70s  a esfera preta cresce a partir de quem lançou (onda no chão + borda de campo de força)
---   2.70s  o domínio fecha: quem está dentro vê o vazio (céu estrelado, névoa, chão espelhado)
+--   2.70s  o domínio fecha: respingo branco na tela e quem estava dentro vai para a DIMENSÃO do vazio
+--          (céu estrelado, névoa, chão espelhado como água, respingos brancos, correntes de luz)
 --   2.70–3.40s  o buraco negro abre: disco, gás girando, anel dourado/azulado, fumaça com brilhos
 --   2.85s  "無量空処 / VAZIO INFINITO"
 --   alvos: tela com ruído de informação, flashes, blur, tremor e partículas na cabeça
@@ -206,24 +207,59 @@ function Dom.new(d)
 		table.insert(ignore, d.caster)
 	end
 	params.FilterDescendantsInstances = ignore
-	local hit = workspace:Raycast(c + Vector3.new(0, 2, 0), Vector3.new(0, -80, 0), params)
-	local y = hit and hit.Position.Y or (c.Y - 3)
+	local y = d.floorY
+	if not y then
+		local hit = workspace:Raycast(c + Vector3.new(0, 2, 0), Vector3.new(0, -80, 0), params)
+		y = hit and hit.Position.Y or (c.Y - 3)
+	end
 	self.floorY = y
 	local flat = CFrame.new(c.X, y, c.Z) * CFrame.Angles(0, 0, math.pi / 2)
 	self.flat = flat
 	self.wave = part({ Name = "Wave", Shape = Enum.PartType.Cylinder, Material = Enum.Material.Neon, Color = Color3.fromRGB(226, 206, 255), Size = Vector3.new(0.4, 1, 1), CFrame = flat * CFrame.new(0.25, 0, 0), Transparency = 1, Parent = folder })
-	self.floor = part({ Name = "VoidFloor", Shape = Enum.PartType.Cylinder, Material = Enum.Material.Glass, Color = Color3.fromRGB(12, 9, 26), Reflectance = 0.3, Size = Vector3.new(0.3, R * 2, R * 2), CFrame = flat * CFrame.new(0.12, 0, 0), Transparency = 1, Parent = folder })
+	-- the void is built in the pocket dimension (or inside the dome when Config.UseDimension = false)
+	local vc = d.dimOrigin or c
+	local vy = d.dimFloorY or y
+	self.vc, self.vy = vc, vy
+	local vflat = CFrame.new(vc.X, vy, vc.Z) * CFrame.Angles(0, 0, math.pi / 2)
+	local floorR = d.dimOrigin and R * 2.4 or R * 2
+	self.floor = part({ Name = "VoidFloor", Shape = Enum.PartType.Cylinder, Material = Enum.Material.Glass, Color = Color3.fromRGB(10, 8, 24), Reflectance = 0.35, Size = Vector3.new(0.3, floorR, floorR), CFrame = vflat * CFrame.new(0.12, 0, 0), Transparency = 1, Parent = folder })
 	-- drifting star dust inside the void
-	local dust = part({ Name = "Dust", Size = Vector3.new(R * 1.8, R * 0.7, R * 1.8), Position = Vector3.new(c.X, y + R * 0.35, c.Z), Transparency = 1, Parent = folder })
+	local dust = part({ Name = "Dust", Size = Vector3.new(R * 1.8, R * 0.7, R * 1.8), Position = Vector3.new(vc.X, vy + R * 0.35, vc.Z), Transparency = 1, Parent = folder })
 	self.dust = new("ParticleEmitter", {
 		Texture = IMG.speck, Shape = Enum.ParticleEmitterShape.Box, Rate = 45, Lifetime = NumberRange.new(4, 7), Speed = NumberRange.new(0.3, 1.5), SpreadAngle = Vector2.new(180, 180),
 		Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.1), NumberSequenceKeypoint.new(0.5, 0.35), NumberSequenceKeypoint.new(1, 0.1) }),
 		Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(0.3, 0.1), NumberSequenceKeypoint.new(1, 1) }),
 		Color = ColorSequence.new(Color3.fromRGB(235, 230, 255), Color3.fromRGB(170, 220, 255)), LightEmission = 1, LightInfluence = 0, Enabled = false, Parent = dust,
 	})
+	-- streams of white light flowing through the void
+	local streams = part({ Name = "Streams", Size = Vector3.new(R * 1.6, R * 0.5, 4), CFrame = CFrame.lookAt(Vector3.new(vc.X, vy + R * 0.3, vc.Z) + (d.forward or Vector3.new(0, 0, -1)) * R * 0.9, Vector3.new(vc.X, vy + R * 0.3, vc.Z)), Transparency = 1, Parent = folder })
+	self.streams = new("ParticleEmitter", {
+		Texture = IMG.streak, Shape = Enum.ParticleEmitterShape.Box, EmissionDirection = Enum.NormalId.Front, Rate = 55, Lifetime = NumberRange.new(0.8, 1.6), Speed = NumberRange.new(70, 140),
+		SpreadAngle = Vector2.new(12, 6), Orientation = Enum.ParticleOrientation.VelocityParallel,
+		Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 2.5), NumberSequenceKeypoint.new(1, 4) }),
+		Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(0.2, 0.15), NumberSequenceKeypoint.new(1, 1) }),
+		Color = ColorSequence.new(Color3.new(1, 1, 1), Color3.fromRGB(220, 210, 255)), LightEmission = 1, LightInfluence = 0, Enabled = false, Parent = streams,
+	})
+	-- white splashes (ink splatters) popping all over the void
+	self.splats = {}
+	local srng = Random.new(d.id * 7 + 3)
+	for i = 1, Config.SplashCount do
+		local a = srng:NextNumber(0, math.pi * 2)
+		local dist = R * srng:NextNumber(0.45, 1.0)
+		local pos = Vector3.new(vc.X + math.cos(a) * dist, vy + srng:NextNumber(3, R * 0.65), vc.Z + math.sin(a) * dist)
+		local sp = part({ Name = "Splash", Size = Vector3.one, Position = pos, Transparency = 1, Parent = folder })
+		local size = srng:NextNumber(8, 26)
+		local sbb = new("BillboardGui", { Size = UDim2.fromScale(size, size), LightInfluence = 0, Brightness = 2, MaxDistance = 1e5, Enabled = false, Parent = sp })
+		local img = new("ImageLabel", {
+			AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1,
+			Image = IMG["splash_" .. ((i - 1) % 4 + 1)], Rotation = srng:NextNumber(0, 360), Parent = sbb,
+		})
+		local sc = new("UIScale", { Scale = 0, Parent = img })
+		self.splats[i] = { bb = sbb, img = img, sc = sc, at = self.open + srng:NextNumber(0, 1.4), spin = srng:NextNumber(-4, 4), again = self.open + srng:NextNumber(3, 7) }
+	end
 	-- the black hole: behind the caster, above the horizon — whoever faces the caster sees them in front of it
 	local fwd = d.forward or Vector3.new(0, 0, -1)
-	local anchor = part({ Name = "BlackHole", Size = Vector3.one, Position = c - fwd * R * 0.8 + Vector3.new(0, R * 0.32, 0), Transparency = 1, Parent = folder })
+	local anchor = part({ Name = "BlackHole", Size = Vector3.one, Position = vc - fwd * R * 0.8 + Vector3.new(0, R * 0.32, 0), Transparency = 1, Parent = folder })
 	local bb = new("BillboardGui", { Size = UDim2.fromScale(R * 1.3, R * 1.3), LightInfluence = 0, Brightness = 1.25, AlwaysOnTop = false, MaxDistance = 1e5, Enabled = false, Parent = anchor })
 	self.bb = bb
 	local holder = new("Frame", { AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, Parent = bb })
@@ -274,12 +310,24 @@ function Dom.new(d)
 	end
 	local titles = new("Frame", { Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, ZIndex = 4, Parent = ov })
 	self.titleScale = new("UIScale", { Parent = titles })
-	self.t1 = label(titles, Config.Title.top, 0.40, 54, TITLE_FONT)
-	self.t1s = label(titles, Config.Title.topSub, 0.48, 22, SUB_FONT)
-	self.t2 = label(titles, Config.Title.name, 0.42, 104, TITLE_FONT)
-	self.t2s = label(titles, Config.Title.nameSub, 0.55, 30, SUB_FONT)
+	-- low on the screen so the face / the black hole stay visible
+	self.t1 = label(titles, Config.Title.top, 0.78, 54, TITLE_FONT)
+	self.t1s = label(titles, Config.Title.topSub, 0.86, 22, SUB_FONT)
+	self.t2 = label(titles, Config.Title.name, 0.76, 96, TITLE_FONT)
+	self.t2s = label(titles, Config.Title.nameSub, 0.88, 30, SUB_FONT)
 	self.noise = new("ImageLabel", { Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, Image = IMG.overload, ImageRectSize = Vector2.new(512, 288), ImageTransparency = 1, ZIndex = 5, Parent = ov })
 	self.flash = new("Frame", { Size = UDim2.fromScale(1, 1), BackgroundColor3 = Color3.new(1, 1, 1), BackgroundTransparency = 1, BorderSizePixel = 0, ZIndex = 6, Parent = ov })
+	-- white splash wipe that covers the cut into the dimension
+	self.wipe = {}
+	for i = 1, 3 do
+		local w = new("ImageLabel", {
+			AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5 + (i - 2) * 0.12, 0.5 + (i % 2) * 0.06 - 0.03), Size = UDim2.fromScale(1, 1), SizeConstraint = Enum.SizeConstraint.RelativeXX,
+			BackgroundTransparency = 1, Image = IMG["splash_" .. i], ImageTransparency = 1, Rotation = i * 97, ZIndex = 7, Parent = ov,
+		})
+		self.wipe[i] = { img = w, sc = new("UIScale", { Scale = 0, Parent = w }), delay = (i - 1) * 0.05 }
+	end
+	-- splashes that flash on the screen of whoever is trapped
+	self.vsplash = new("ImageLabel", { AnchorPoint = Vector2.new(0.5, 0.5), Size = UDim2.fromScale(0.45, 0.45), SizeConstraint = Enum.SizeConstraint.RelativeYY, BackgroundTransparency = 1, Image = IMG.splash_1, ImageTransparency = 1, ZIndex = 6, Parent = ov })
 	-- sound: the intro (mask, eyes, finger snap) now; the cast swell is started so its impact lands on "open"
 	self.castSnd = sound(SND.cast, self.shell, 1.2, false, true, R)
 	local introSnd = sound(SND.intro, self.shell, 1.1, false, true, R)
@@ -355,6 +403,10 @@ function Dom:setInside(on)
 	self.inside = on
 	self.bb.Enabled = on
 	self.dust.Enabled = on
+	self.streams.Enabled = on
+	for _, sp in ipairs(self.splats) do
+		sp.bb.Enabled = on
+	end
 	if on then
 		if not self.loopSnd then
 			self.loopSnd = sound(SND.loop, SoundService, 0.8, true)
@@ -433,7 +485,7 @@ function Dom:update(dt)
 	local open = self.open
 	local cam = workspace.CurrentCamera
 	local dist = (cam.CFrame.Position - d.center).Magnitude
-	local near = dist < R * 2.5
+	local near = dist < R * 2.5 or (d.dimOrigin ~= nil and (cam.CFrame.Position - d.dimOrigin).Magnitude < R * 1.4)
 	local col = self.collapseAt and clamp01((now - self.collapseAt) / 0.6) or 0
 	local ex = TL.expand
 	if self.cine and not self.collapseAt then
@@ -455,8 +507,10 @@ function Dom:update(dt)
 	self.wave.Size = Vector3.new(0.4, R * 2.3 * outQuad(wv) + 1, R * 2.3 * outQuad(wv) + 1)
 	self.wave.Transparency = (t < ex or wv >= 1) and 1 or (0.1 + 0.9 * wv)
 	self.floor.Transparency = t >= open - 0.1 and col < 1 and 0 or 1
-	-- inside the void?
-	local inside = dist < R * 0.97 and t >= open - 0.05 and col < 0.5
+	-- inside the void? (in the pocket dimension, or inside the dome without it)
+	local distVoid = d.dimOrigin and (cam.CFrame.Position - d.dimOrigin).Magnitude or dist
+	local inside = distVoid < R * (d.dimOrigin and 1.4 or 0.97) and t >= open - 0.05 and col < 0.5
+	local witness = dist < R or inside -- saw the domain close from inside
 	self:setInside(inside)
 	-- camera push (x1.25) while the domain is being cast, back over 1 s (players not in the cinematic)
 	local cineCam = self.cine and self.cine.isViewer
@@ -535,10 +589,33 @@ function Dom:update(dt)
 		end
 		self.bhFlash.ImageTransparency = 1 - 0.9 * window(t, open, open + 0.9, 0.05, 0.8)
 	end
-	-- white flashes: when the void opens (inside) and when it shatters
+	-- white flashes + splash wipe: when the void opens and when it shatters
 	local fl = 0
-	if dist < R then
-		fl = math.max(window(t, open - 0.05, open + 0.4, 0.05, 0.35) * 0.85, col > 0 and (1 - col) * 0.9 or 0)
+	if witness then
+		fl = math.max(window(t, open - 0.05, open + 0.4, 0.05, 0.35) * 0.6, col > 0 and (1 - col) * 0.9 or 0)
+	end
+	for _, w in ipairs(self.wipe) do
+		local k = witness and (t - (open - 0.12) - w.delay) or -1
+		if k >= 0 and k < 1.0 then
+			w.sc.Scale = 0.2 + 2.6 * outQuad(clamp01(k / 0.28))
+			w.img.ImageTransparency = clamp01((k - 0.3) / 0.55)
+		else
+			w.img.ImageTransparency = 1
+		end
+	end
+	-- 3D splashes: pop in after the void opens, slowly turn, and splash again now and then
+	if inside then
+		for _, sp in ipairs(self.splats) do
+			if now - d.startAt >= sp.again then
+				sp.again = t + 3 + math.random() * 4
+				sp.at = t
+			end
+			local k = t - sp.at
+			local pop = k < 0 and 0 or outBack(clamp01(k / 0.3))
+			sp.sc.Scale = math.max(0, pop) * (1 + 0.04 * math.sin(now * 2 + sp.spin))
+			sp.img.Rotation += sp.spin * dt
+			sp.img.ImageTransparency = k < 0 and 1 or 0.05 + 0.25 * clamp01((k - 1.5) / 2)
+		end
 	end
 	-- victim: infinite information
 	if self.victim and t >= open then
@@ -552,7 +629,17 @@ function Dom:update(dt)
 			self.flashUntil = now + 0.06
 		end
 		if self.flashUntil and now < self.flashUntil then
-			fl = math.max(fl, 0.55)
+			fl = math.max(fl, 0.35)
+			if not self.vsplashOn then
+				self.vsplashOn = true
+				self.vsplash.Image = IMG["splash_" .. math.random(1, 4)]
+				self.vsplash.Position = UDim2.fromScale(0.2 + math.random() * 0.6, 0.2 + math.random() * 0.6)
+				self.vsplash.Rotation = math.random(0, 360)
+			end
+			self.vsplash.ImageTransparency = 0.15
+		else
+			self.vsplashOn = false
+			self.vsplash.ImageTransparency = math.min(1, self.vsplash.ImageTransparency + dt * 4)
 		end
 		if self.blur then
 			self.blur.Size = 5 + 4 * math.sin(now * 7)
