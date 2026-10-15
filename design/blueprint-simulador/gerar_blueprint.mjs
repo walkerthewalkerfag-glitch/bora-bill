@@ -1,6 +1,6 @@
 // Gera blueprint-simulador.png: o mapa do simulador visto de cima + um desenho de referência para cada área.
 // Uso:  npm install && npx playwright install chromium
-//       npm run gerar                (ou: node gerar_blueprint.mjs [saida.png]; SCALE=1 gera em 2800x1800)
+//       npm run gerar                (ou: node gerar_blueprint.mjs [saida.png]; SCALE=1 gera em 2800x1680)
 import fs from 'node:fs';
 import path from 'node:path';
 import { createRequire } from 'node:module';
@@ -12,8 +12,8 @@ const OUT = process.argv[2] || path.join(here, 'blueprint-simulador.png');
 const SCALE = Number(process.env.SCALE || 2);
 
 // ------------------------------------------------------------------ canvas
-const W = 2800, H = 1800;
-const CX = 830, CY = 965; // centro do mapa (1 px = 1 stud)
+const W = 2800, H = 1680;
+const K = 1.48, MX = 46, MY = 150; // o mapa começa em (MX, MY); 1 stud = K px
 const deg = Math.PI / 180;
 const f = (n) => Math.round(n * 10) / 10;
 const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -64,46 +64,54 @@ rad('gCyan', [[0, '#a5f3fc', 0.9], [1, '#22d3ee', 0]]);
 rad('gGold', [[0, '#fff1a8', 0.95], [1, '#f6c445', 0]]);
 rad('gWhite', [[0, '#ffffff', 0.9], [1, '#ffffff', 0]]);
 for (const [k, col] of Object.entries(PORTAL)) rad('portal_' + k, [[0, '#ffffff', 0.95], [0.35, col, 0.95], [1, col, 0.55]]);
-DEFS.push(`<radialGradient id="grassGrad" cx="${CX}" cy="${CY}" r="480" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="${C.grassIn}"/><stop offset="1" stop-color="${C.grassOut}"/></radialGradient>`);
+DEFS.push(`<radialGradient id="grassGrad" cx="534" cy="360" r="620" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="${C.grassIn}"/><stop offset="1" stop-color="${C.grassOut}"/></radialGradient>`);
 DEFS.push(`<radialGradient id="craterGrad"><stop offset="0" stop-color="#5c4636"/><stop offset="1" stop-color="#2a201b"/></radialGradient>`);
 DEFS.push(`<marker id="arrowW" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="${C.ink}"/></marker>`);
 DEFS.push(`<marker id="arrowC" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="${C.cyan}"/></marker>`);
 DEFS.push(`<marker id="arrowM" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="4.5" markerHeight="4.5" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="${C.magma}"/></marker>`);
 
-// ------------------------------------------------------------------ geometry of the world (studs)
-function P(rr, a) { return [CX + rr * Math.sin(a * deg), CY - rr * Math.cos(a * deg)]; }
+// ------------------------------------------------------------------ world (studs): a 1068 x 720 rectangle
+const WW = 1068, WH = 720;
+const X = (x) => MX + x * K, Y = (y) => MY + y * K;
 function noise(t, s) { return 0.5 * Math.sin(3 * t + s) + 0.3 * Math.sin(7 * t + 2.1 * s) + 0.2 * Math.sin(13 * t + 0.7 * s) + 0.12 * Math.sin(23 * t + 1.3 * s); }
-function angDist(a, b) { return Math.abs((((a - b) % 360) + 540) % 360 - 180); }
-function smooth(x) { x = Math.max(0, Math.min(1, x)); return x * x * (3 - 2 * x); }
 function rng(seed) { return () => { seed |= 0; seed = (seed + 0x6d2b79f5) | 0; let t = Math.imul(seed ^ (seed >>> 15), 1 | seed); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
-
-const R = { hub: 130, rail: 205, road: 318, plot: 395, half: 55 };
-const PLOTS = [32, 58, 122, 148, 212, 238, 302, 328];
-const Z = { eventos: { a: 0, rc: 452 }, arena: { a: 90, rc: 440 }, lobby: { a: 180, rc: 442 }, mina: { a: 270, rc: 446 } };
-const SPOKES = [0, 32, 58, 90, 122, 148, 180, 212, 238, 270, 302, 328];
-const BUMPS = [{ c: 0, w: 24, h: 112 }, { c: 90, w: 21, h: 96 }, { c: 180, w: 24, h: 112 }, { c: 270, w: 24, h: 110 }];
-function rIn(a) { let v = 458 + 7 * noise(a * deg, 1.7); for (const b of BUMPS) v += b.h * smooth(1 - angDist(a, b.c) / b.w); return v; }
-function rOut(a) { return 741 + 10 * noise(a * deg, 4.2); }
-function ringPath(fn, step = 1.5) { let d = ''; for (let a = 0; a < 360; a += step) { const [x, y] = P(fn(a), a); d += (a === 0 ? 'M' : 'L') + f(x) + ' ' + f(y) + ' '; } return d + 'Z'; }
 function blob(cx, cy, r0, amp, seed, step = 10) { let d = ''; for (let a = 0; a < 360; a += step) { const rr = r0 + amp * noise(a * deg, seed); const x = cx + rr * Math.cos(a * deg), y = cy + rr * Math.sin(a * deg); d += (a === 0 ? 'M' : 'L') + f(x) + ' ' + f(y) + ' '; } return d + 'Z'; }
-// zone-local frame: u = right (looking outward), v = outward. In a rotated group, local x = u, local y = -v.
-function L(a, rc, u, v) { const [x, y] = P(rc, a); return [x + v * Math.sin(a * deg) + u * Math.cos(a * deg), y - v * Math.cos(a * deg) + u * Math.sin(a * deg)]; }
-const zoneG = (a, rc, inner) => { const [x, y] = P(rc, a); return `<g transform="translate(${f(x)} ${f(y)}) rotate(${a})">${inner}</g>`; };
-const PONDS = [{ a: 45, rr: 262, s: 24 }, { a: 225, rr: 262, s: 22 }].map((p) => { const [x, y] = P(p.rr, p.a); return { ...p, x, y }; });
-
-function isFree(x, y, pad = 0) {
-	const dx = x - CX, dy = y - CY, rr = Math.hypot(dx, dy);
-	let a = Math.atan2(dx, -dy) / deg; if (a < 0) a += 360;
-	if (rr < R.hub + 18 + pad) return false;
-	if (Math.abs(rr - R.rail) < 16 + pad) return false;
-	if (Math.abs(rr - R.road) < 17 + pad) return false;
-	if (rr > rIn(a) - 10 - pad) return false;
-	for (const s of SPOKES) { const ad = angDist(a, s); if (ad < 60 && rr * Math.sin(ad * deg) < 16 + pad && rr < 360) return false; }
-	for (const pa of PLOTS) { const [px, py] = P(R.plot, pa); if (Math.hypot(x - px, y - py) < 84 + pad) return false; }
-	for (const z of Object.values(Z)) { const [zx, zy] = P(z.rc, z.a); if (Math.hypot(x - zx, y - zy) < 140 + pad) return false; }
-	for (const p of PONDS) if (Math.hypot(x - p.x, y - p.y) < p.s + 8 + pad) return false;
-	return true;
+// closed polygon with rounded corners
+function roundedPoly(pts, rad) {
+	let d = '';
+	pts.forEach((p, i) => {
+		const a = pts[(i - 1 + pts.length) % pts.length], b = pts[(i + 1) % pts.length];
+		const l1 = Math.hypot(a[0] - p[0], a[1] - p[1]), l2 = Math.hypot(b[0] - p[0], b[1] - p[1]), rr = Math.min(rad, l1 / 2, l2 / 2);
+		const p1 = [p[0] + ((a[0] - p[0]) / l1) * rr, p[1] + ((a[1] - p[1]) / l1) * rr], p2 = [p[0] + ((b[0] - p[0]) / l2) * rr, p[1] + ((b[1] - p[1]) / l2) * rr];
+		d += `${i ? 'L' : 'M'} ${f(p1[0])} ${f(p1[1])} Q ${f(p[0])} ${f(p[1])} ${f(p2[0])} ${f(p2[1])} `;
+	});
+	return d + 'Z';
 }
+// contour line around the valley, d studs into the mountain
+function contour(d, seed) {
+	const x0 = 48 - d, y0 = 150 - d, x1 = 1020 + d, y1 = 570 + d, rr = 10 + d, pts = [];
+	let n = 0;
+	const push = (x, y, nx, ny) => { n += 1; const w = 3.2 * noise(n * 0.09, seed); pts.push(`${f(x + nx * w)} ${f(y + ny * w)}`); };
+	const arc = (cx, cy, a0) => { for (let a = a0; a <= a0 + 90; a += 7.5) { const ca = Math.cos(a * deg), sa = Math.sin(a * deg); push(cx + rr * ca, cy + rr * sa, ca, sa); } };
+	for (let x = x0 + rr; x <= x1 - rr; x += 6) push(x, y0, 0, -1);
+	arc(x1 - rr, y0 + rr, -90);
+	for (let y = y0 + rr; y <= y1 - rr; y += 6) push(x1, y, 1, 0);
+	arc(x1 - rr, y1 - rr, 0);
+	for (let x = x1 - rr; x >= x0 + rr; x -= 6) push(x, y1, 0, 1);
+	arc(x0 + rr, y1 - rr, 90);
+	for (let y = y1 - rr; y >= y0 + rr; y -= 6) push(x0, y, -1, 0);
+	arc(x0 + rr, y0 + rr, 180);
+	return 'M ' + pts.join(' L ') + ' Z';
+}
+// valley (clockwise) with the events zone carved into the north side and the lobby into the south side
+const VALLEY = [[48, 150], [434, 150], [434, 100], [634, 100], [634, 150], [1020, 150], [1020, 570], [634, 570], [634, 620], [434, 620], [434, 570], [48, 570]];
+const PLOTS = [[256, 200], [370, 200], [698, 200], [812, 200], [256, 520], [370, 520], [698, 520], [812, 520]];
+const RAIL = [[197, 265], [871, 265], [871, 455], [197, 455]];
+const STATIONS = [[534, 265, 0], [534, 455, 0], [197, 360, 90], [871, 360, 90]];
+// x, y (84 x 58 studs), name, roof, icon, awning side (1 = bottom edge, -1 = top edge)
+const SHOPS = [[218, 290, 'PICARETAS', '#ef4444', 'pick', 1], [308, 290, 'MOCHILAS', '#3b82f6', 'bag', 1], [218, 372, 'FORJA', '#64748b', 'anvil', -1], [308, 372, 'RENASCER', '#db2777', 'rebirth', -1], [676, 290, 'VENDER', '#16a34a', 'coin', 1], [766, 290, 'OVOS', '#9333ea', 'egg', 1], [676, 372, 'PLACARES', '#0284c7', 'trophy', -1], [766, 372, 'MISSÕES', '#f59e0b', 'quest', -1]];
+// guide light: spawn -> through the hub -> gate of lote 2
+const GUIDE = [[534, 506], [534, 440], [448, 420], [448, 292], [448, 276], [370, 276], [370, 254]];
 
 // ------------------------------------------------------------------ small map icons
 function star(x, y, r1, r2, n, fill, extra = '') { const pts = []; for (let i = 0; i < n * 2; i++) { const rr = i % 2 ? r2 : r1; const a = (i * 180) / n - 90; pts.push([x + rr * Math.cos(a * deg), y + rr * Math.sin(a * deg)]); } return poly(pts, fill, extra); }
@@ -118,7 +126,7 @@ function icon(kind, x, y, s = 1) {
 		case 'bag': return r(x - 5 * k, y - 3 * k, 10 * k, 9 * k, '#8b5a2b', `rx="${f(2 * k)}"`) + pth(`M ${f(x - 3 * k)} ${f(y - 3 * k)} Q ${f(x)} ${f(y - 9 * k)} ${f(x + 3 * k)} ${f(y - 3 * k)}`, 'none', `stroke="#8b5a2b" stroke-width="${f(1.6 * k)}"`);
 		case 'coin': return c(x, y, 6 * k, C.gold, `stroke="#b7861f" stroke-width="${f(1.4 * k)}"`) + T(x, y + 3.2 * k, '$', { size: 9 * k, weight: 800, fill: '#8a5a12', anchor: 'middle', halo: false });
 		case 'egg': return el(x, y + 0.5 * k, 5 * k, 6.5 * k, '#f5f0ff', `stroke="#7c3aed" stroke-width="${f(1.2 * k)}"`) + c(x - 1.5 * k, y - 1 * k, 1.2 * k, '#a855f7') + c(x + 2 * k, y + 2 * k, 1.4 * k, '#a855f7');
-		case 'anvil': return poly([[x - 6 * k, y - 3 * k], [x + 6 * k, y - 3 * k], [x + 3 * k, y + 1 * k], [x + 3 * k, y + 4 * k], [x - 3 * k, y + 4 * k], [x - 3 * k, y + 1 * k]], '#3f4652');
+		case 'anvil': return poly([[x - 6 * k, y - 3 * k], [x + 6 * k, y - 3 * k], [x + 3 * k, y + 1 * k], [x + 3 * k, y + 4 * k], [x - 3 * k, y + 4 * k], [x - 3 * k, y + 1 * k]], '#e2e8f0');
 		case 'rebirth': return pth(`M ${f(x + 5 * k)} ${f(y - 1 * k)} A ${f(5 * k)} ${f(5 * k)} 0 1 1 ${f(x + 1 * k)} ${f(y - 5 * k)}`, 'none', `stroke="#fff" stroke-width="${f(2 * k)}"`) + poly([[x + 1 * k, y - 8 * k], [x + 5 * k, y - 5 * k], [x + 1 * k, y - 2 * k]], '#fff');
 		case 'trophy': return pth(`M ${f(x - 5 * k)} ${f(y - 6 * k)} L ${f(x + 5 * k)} ${f(y - 6 * k)} L ${f(x + 4 * k)} ${f(y)} Q ${f(x)} ${f(y + 3 * k)} ${f(x - 4 * k)} ${f(y)} Z`, C.gold) + r(x - 1 * k, y + 1 * k, 2 * k, 3 * k, C.gold) + r(x - 3.5 * k, y + 4 * k, 7 * k, 2 * k, C.gold);
 		case 'quest': return T(x, y + 5 * k, '!', { size: 15 * k, weight: 800, fill: '#fff', anchor: 'middle', halo: false });
@@ -160,341 +168,253 @@ function plotLocal(col, n = 0) {
 	return s;
 }
 
-// ------------------------------------------------------------------ MAP
+// ------------------------------------------------------------------ MAP (in studs, inside a group scaled by K)
 function drawMap() {
 	let s = '';
-	// mountain disc + topographic lines
-	s += pth(ringPath(rOut), C.rock);
-	for (let k = 1; k <= 5; k++) s += pth(ringPath((a) => rIn(a) + ((rOut(a) - rIn(a)) * k) / 6 + 5 * noise(a * deg, k * 2.9)), 'none', `stroke="${C.rockLine}" stroke-width="1.3" opacity=".7"`);
-	s += pth(ringPath(rOut), 'none', `stroke="${C.rockEdge}" stroke-width="3.5"`);
-
-	// tunnels (underground: dashed hidden lines)
-	const LAYERS = [[452, 510, C.terra], [510, 568, C.pedra], [568, 626, C.cristal], [626, 684, C.magma], [684, 732, C.nucleo]];
-	// deep ring (Anel Profundo)
-	s += c(CX, CY, 655, 'none', `stroke="${C.magma}" stroke-width="9" opacity=".55"`);
-	s += c(CX, CY, 649.5, 'none', `stroke="${C.ink}" stroke-width="1" stroke-dasharray="5 4" opacity=".75"`) + c(CX, CY, 660.5, 'none', `stroke="${C.ink}" stroke-width="1" stroke-dasharray="5 4" opacity=".75"`);
-	// shared caverns between neighbour tunnels
-	for (const a of [45, 135, 225, 315]) {
-		const [x0, y0] = P(597, a - 13), [x1, y1] = P(597, a + 13);
-		s += ln(x0, y0, x1, y1, C.cristal, 8, 'opacity=".55"');
-		const [cx, cy] = P(597, a);
-		s += pth(blob(cx, cy, 27, 4, a * 0.1), C.cristal, `fill-opacity=".55" stroke="${C.ink}" stroke-width="1.1" stroke-dasharray="5 3.5"`);
-		for (const [dx, dy] of [[-9, -4], [6, -9], [8, 7], [-4, 9]]) s += poly([[cx + dx, cy + dy - 4], [cx + dx + 2.6, cy + dy], [cx + dx, cy + dy + 4], [cx + dx - 2.6, cy + dy]], '#e9ddff');
+	const hidden = (w = 0.8) => `stroke="${C.ink}" stroke-width="${w}" stroke-dasharray="4 3" opacity=".85"`;
+	// mountain + contour lines
+	s += r(0, 0, WW, WH, C.rock);
+	for (const [d, seed] of [[18, 1.1], [40, 2.3], [64, 3.7], [90, 4.9], [118, 6.1]]) s += pth(contour(d, seed), 'none', `stroke="${C.rockLine}" stroke-width=".9" opacity=".75"`);
+	// deep ring (Anel Profundo): one gallery around the whole map, in the magma layer
+	const ring = (o) => roundedPoly([[24 - o, 52 - o], [1044 + o, 52 - o], [1044 + o, 668 + o], [24 - o, 668 + o]], 24 + o);
+	s += pth(ring(0), 'none', `stroke="${C.magma}" stroke-width="8" opacity=".55"`) + pth(ring(5.5), 'none', hidden(0.75)) + pth(ring(-5.5), 'none', hidden(0.75));
+	// shared caverns between neighbour tunnels (crystal layer)
+	for (const [cx, cy] of [[313, 80], [755, 80], [313, 640], [755, 640]]) {
+		s += ln(cx - 57, cy, cx + 57, cy, C.cristal, 7, 'opacity=".55"');
+		s += pth(blob(cx, cy, 18, 2.2, cx * 0.01 + cy * 0.003), C.cristal, `fill-opacity=".6" ${hidden()}`);
+		for (const [dx, dy] of [[-7, -3], [5, -7], [6, 5], [-3, 7]]) s += poly([[cx + dx, cy + dy - 3.2], [cx + dx + 2.2, cy + dy], [cx + dx, cy + dy + 3.2], [cx + dx - 2.2, cy + dy]], '#efe6ff');
 	}
-	for (const a of PLOTS) {
-		const [x0, y0] = P(452, a), [x1, y1] = P(732, a);
-		s += ln(x0, y0, x1, y1, '#2a1f17', 15, 'opacity=".55"');
-		for (const [r0, r1, col] of LAYERS) { const [ax, ay] = P(r0, a), [bx, by] = P(r1, a); s += ln(ax, ay, bx, by, col, 8); }
-		const ox = Math.cos(a * deg) * 7.5, oy = Math.sin(a * deg) * 7.5;
-		s += ln(x0 + ox, y0 + oy, x1 + ox, y1 + oy, C.ink, 1.1, 'stroke-dasharray="5 4" opacity=".85"') + ln(x0 - ox, y0 - oy, x1 - ox, y1 - oy, C.ink, 1.1, 'stroke-dasharray="5 4" opacity=".85"');
-		const [ex, ey] = P(758, a);
-		s += ln(x1, y1, ex, ey, C.ink, 1.4, 'stroke-dasharray="3 3" marker-end="url(#arrowW)" opacity=".85"');
-	}
-
-	// valley floor
-	s += pth(ringPath(rIn), 'url(#grassGrad)');
-	s += pth(ringPath(rIn), 'none', `stroke="${C.grassEdge}" stroke-width="3"`);
-	let hach = '';
-	for (let a = 0; a < 360; a += 1.6) { const ri = rIn(a); const [x0, y0] = P(ri + 2, a), [x1, y1] = P(ri + 11, a); hach += `M ${f(x0)} ${f(y0)} L ${f(x1)} ${f(y1)} `; }
-	s += pth(hach, 'none', `stroke="${C.rockEdge}" stroke-width="1.5" opacity=".8"`);
-
-	// ponds
-	for (const p of PONDS) s += pth(blob(p.x, p.y, p.s, 3, p.a * 0.05), C.water, `stroke="#3d93b8" stroke-width="2"`) + el(p.x - 6, p.y - 6, 7, 3, '#bfe9f7', 'opacity=".6"');
-
-	// paths: ring road + spokes
-	const spokeEnd = { 0: 336, 90: 342, 180: 330, 270: 340 };
-	let paths = '';
-	for (const a of SPOKES) { const [x0, y0] = P(R.hub - 4, a), [x1, y1] = P(spokeEnd[a] || 344, a); paths += `M ${f(x0)} ${f(y0)} L ${f(x1)} ${f(y1)} `; }
-	s += pth(paths, 'none', `stroke="${C.pathEdge}" stroke-width="22" stroke-linecap="round"`);
-	s += c(CX, CY, R.road, 'none', `stroke="${C.pathEdge}" stroke-width="24"`);
-	s += pth(paths, 'none', `stroke="${C.path}" stroke-width="17" stroke-linecap="round"`);
-	s += c(CX, CY, R.road, 'none', `stroke="${C.path}" stroke-width="19"`);
-
-	// trees
-	const rand = rng(7), trees = [];
-	for (let i = 0; i < 3000 && trees.length < 110; i++) {
-		const rr = 140 + rand() * 340, a = rand() * 360, [x, y] = P(rr, a), sz = 5.5 + rand() * 6;
-		if (!isFree(x, y, sz)) continue;
-		if (trees.some((t) => Math.hypot(t.x - x, t.y - y) < t.sz + sz + 2)) continue;
-		trees.push({ x, y, sz });
-	}
-	for (const t of trees) s += c(t.x + 1.5, t.y + 2, t.sz, 'rgba(0,0,0,.18)') + c(t.x, t.y, t.sz, C.tree) + c(t.x - t.sz * 0.3, t.y - t.sz * 0.3, t.sz * 0.5, C.treeLight);
-	// lamps along spokes
-	for (const a of SPOKES) for (let rr = 150; rr < 300; rr += 42) for (const side of [-1, 1]) {
-		if (Math.abs(rr - R.rail) < 14) continue;
-		const [x, y] = P(rr, a); const ox = Math.cos(a * deg) * 13 * side, oy = Math.sin(a * deg) * 13 * side;
-		s += c(x + ox, y + oy, 5, '#fff3b0', 'opacity=".35"') + c(x + ox, y + oy, 2.2, '#ffe27a', `stroke="${C.navy}" stroke-width=".6"`);
-	}
-
-	// ---------------- hub plaza
-	s += c(CX, CY, R.hub + 3, C.pathEdge) + c(CX, CY, R.hub, C.plaza);
-	for (const rr of [112, 64, 40]) s += c(CX, CY, rr, 'none', `stroke="${C.plazaLine}" stroke-width="2"`);
-	for (let a = 0; a < 360; a += 15) { const [x0, y0] = P(40, a), [x1, y1] = P(R.hub, a); s += ln(x0, y0, x1, y1, C.plazaLine, 1); }
-	// planters in the narrow wedges
-	for (const a of [45, 225, 315]) { const [x, y] = P(112, a); s += c(x, y, 9, '#5fae5a', `stroke="#8a7a60" stroke-width="2"`) + c(x - 3, y - 2, 2, '#f472b6') + c(x + 3, y + 2, 2, '#facc15'); }
-	// shops
-	const SHOPS = [[16, 'MOCHILAS', '#3b82f6', 'bag'], [74, 'PICARETAS', '#ef4444', 'pick'], [106, 'VENDER', '#16a34a', 'coin'], [164, 'MISSÕES', '#f59e0b', 'quest'], [196, 'OVOS', '#9333ea', 'egg'], [254, 'FORJA', '#64748b', 'anvil'], [286, 'RENASCER', '#db2777', 'rebirth'], [344, 'PLACARES', '#0284c7', 'trophy']];
-	for (const [a, name, col, ic] of SHOPS) {
-		const [x, y] = P(94, a);
-		s += `<g transform="translate(${f(x)} ${f(y)}) rotate(${a})">` + r(-19, -13, 38, 24, 'rgba(0,0,0,.2)', 'rx="3" transform="translate(2 3)"') + r(-19, -13, 38, 24, col, 'rx="3"') + ln(-19, -1, 19, -1, 'rgba(255,255,255,.35)', 1.5) + r(-19, 9, 38, 4, 'rgba(0,0,0,.25)') + '</g>';
-		s += c(x, y, 9, 'rgba(12,38,69,.55)') + icon(ic, x, y, 0.95);
-		const [lx, ly] = P(166, a);
-		s += T(lx, ly + 5, name, { size: 14.5, weight: 800, anchor: 'middle', ls: 0.4 });
-	}
-	// monument: giant drill + countdown screen
-	s += poly(Array.from({ length: 8 }, (_, i) => P(27, i * 45 + 22.5)), '#d6ceb9', `stroke="#a99f88" stroke-width="2"`);
-	s += c(CX, CY, 17, '#f2b134', 'stroke="#b7861f" stroke-width="2"');
-	for (let i = 0; i < 4; i++) s += pth(`M ${f(CX)} ${f(CY)} m 0 0 a ${f(8 + i)} ${f(8 + i)} 0 0 1 ${f(15 * Math.cos(i * 1.57))} ${f(15 * Math.sin(i * 1.57))}`, 'none', 'stroke="#a8740f" stroke-width="2"');
-	s += c(CX, CY, 3.5, '#fff1a8');
-	s += r(CX - 20, CY + 30, 40, 9, C.dark, 'rx="2"') + r(CX - 16, CY + 33, 32, 3, '#ff8a3d');
-	// travelling merchant spot (appears)
-	const [mx, my] = P(80, 135);
-	s += c(mx, my, 17, 'rgba(251,113,133,.16)', `stroke="${CAT.evento}" stroke-width="2.2" stroke-dasharray="5 3"`) + icon('wagon', mx, my + 1, 1);
-
-	// ---------------- plots
-	PLOTS.forEach((a, i) => { const [x, y] = P(R.plot, a); s += `<g transform="translate(${f(x)} ${f(y)}) rotate(${a})">${plotLocal(PLAYER[i], i + 1)}</g>`; });
-
-	// ---------------- N: live events zone
-	{
-		const { a, rc } = Z.eventos;
-		let z = '';
-		z += r(-108, -120, 216, 236, '#d6c4a0', `rx="46" stroke="#7d6b56" stroke-width="3"`);
-		z += r(-100, -112, 200, 220, 'none', `rx="40" stroke="#e6d8b8" stroke-width="2" stroke-dasharray="2 6"`);
-		// stands around the crater
-		z += pth('M -78 -40 A 74 74 0 0 0 -78 52', 'none', 'stroke="#9aa6b5" stroke-width="20"') + pth('M -78 -40 A 74 74 0 0 0 -78 52', 'none', 'stroke="#c3ccd6" stroke-width="20" stroke-dasharray="2 5"');
-		z += pth('M 78 -40 A 74 74 0 0 1 78 52', 'none', 'stroke="#9aa6b5" stroke-width="20"') + pth('M 78 -40 A 74 74 0 0 1 78 52', 'none', 'stroke="#c3ccd6" stroke-width="20" stroke-dasharray="2 5"');
-		// stage + big screen at the back
-		z += r(-50, -114, 100, 8, C.dark, 'rx="2"') + r(-44, -112, 88, 3, C.cyan);
-		z += r(-52, -104, 104, 24, '#e5483b', 'rx="3"') + r(-52, -84, 104, 4, '#a3271d');
-		z += c(-46, -98, 3, '#fff3c4') + c(46, -98, 3, '#fff3c4');
-		// countdown board at the entrance
-		z += r(-22, 92, 44, 10, C.dark, 'rx="2"') + r(-17, 95, 34, 4, '#ff8a3d');
-		s += zoneG(a, rc, z);
-		// worm passage from the deep ring into the crater (hidden line)
-		const [px0, py0] = P(650, -9), [px1, py1] = P(512, -5);
-		s += ln(px0, py0, px1, py1, C.magma, 8, 'opacity=".55"') + ln(px0, py0, px1, py1, C.ink, 1.1, 'stroke-dasharray="5 4"');
-		// crater
-		const [cx, cy] = L(a, rc, 0, 8);
-		s += c(cx, cy, 60, '#b9a284') + c(cx, cy, 51, 'url(#craterGrad)');
-		for (let i = 0; i < 7; i++) { const aa = i * 51 + 10; s += ln(cx + 10 * Math.cos(aa * deg), cy + 10 * Math.sin(aa * deg), cx + 38 * Math.cos(aa * deg), cy + 38 * Math.sin(aa * deg), '#ff8a3d', 1.6, 'opacity=".7"'); }
-		s += c(cx, cy, 30, 'url(#gOrange)') + c(cx, cy, 12, '#ff9b4a', 'stroke="#7a3b1e" stroke-width="2"') + c(cx - 3, cy - 3, 4, '#ffe0a3');
-		const [hx, hy] = P(512, -5); s += c(hx, hy, 7, '#1b1411', `stroke="${C.magma}" stroke-width="2"`);
-	}
-
-	// ---------------- E: minigame arena
-	{
-		const { a, rc } = Z.arena;
-		let z = '';
-		z += r(-102, -104, 204, 206, '#efcf86', `rx="34" stroke="#a9853c" stroke-width="3"`);
-		for (let i = 0; i < 8; i++) { const x = -84 + i * 24; z += r(x - 10, -70, 20, 78, i % 2 ? '#e8bf62' : '#f4d891'); z += r(x - 8, -40, 16, 16, '#4a3221', 'rx="1.5"') + r(x - 5, -37, 10, 10, '#2a1b12'); }
-		z += r(-96, 8, 192, 3, '#ffffff');
-		z += r(-62, -94, 124, 16, C.dark, 'rx="3"');
-		for (let i = 0; i < 8; i++) z += r(-56 + i * 14.5, -90, 9, 8, ['#facc15', '#22c55e', '#38bdf8', '#fb7185'][i % 4]);
-		[-45, -15, 15, 45].forEach((x, i) => { z += c(x, 54, 10, ['#38bdf8', '#4ade80', '#facc15', '#fb7185'][i], 'stroke="#fff" stroke-width="2.5"'); });
-		s += zoneG(a, rc, z);
-	}
-
-	// ---------------- S: lobby / spawn + portals
-	{
-		const { a, rc } = Z.lobby;
-		let z = '';
-		z += r(-114, -122, 228, 236, '#a6e3d8', `rx="44" stroke="#5aa99b" stroke-width="3"`);
-		for (let x = -96; x <= 96; x += 24) z += ln(x, -112, x, 104, '#c4eee6', 1.2);
-		for (let y = -96; y <= 96; y += 24) z += ln(-104, y, 104, y, '#c4eee6', 1.2);
-		// spawn pad + welcome arch, tutorial npc and daily chest on the sides
-		z += c(0, 34, 30, '#e8fffb', 'stroke="#2ec4a9" stroke-width="3"') + c(0, 34, 20, 'none', 'stroke="#2ec4a9" stroke-width="2" stroke-dasharray="4 3"');
-		for (const x of [-30, 30]) z += r(x - 4, 0, 8, 8, '#8a6a48');
-		z += r(-30, 2, 60, 4, '#8a6a48');
-		z += c(-62, 30, 7, '#f6c445', `stroke="${C.navy}" stroke-width="1.5"`);
-		z += r(53, 24, 18, 12, C.gold, `rx="2" stroke="#8a5520" stroke-width="1.5"`);
-		// codes terminal + group chest
-		z += r(55, -17, 14, 14, C.dark, 'rx="2"') + r(58, -14, 8, 6, C.cyan);
-		z += r(-70, -16, 16, 12, '#a855f7', `rx="2" stroke="#5b21b6" stroke-width="1.5"`);
-		// portals against the cliff
-		[['trocas', -78], ['eventos', -26], ['vip', 26], ['torneio', 78]].forEach(([k, x]) => {
-			z += c(x, -100, 21, `url(#portal_${k})`, 'opacity=".55"');
-			z += c(x, -100, 14, `url(#portal_${k})`, `stroke="#cfc6b2" stroke-width="4"`);
-		});
-		s += zoneG(a, rc, z);
-	}
-
-	// ---------------- W: public mine (open pit)
-	{
-		const { a, rc } = Z.mina;
-		let z = '';
-		z += pth(blob(0, 0, 108, 6, 2.2), '#b9997a', `stroke="#7a6046" stroke-width="3"`);
-		[[92, '#a8865f'], [72, '#937150'], [52, '#7b5c40'], [32, '#634830'], [14, '#4b3524']].forEach(([rr, col], i) => { z += pth(blob(0, 10, rr, 3 + i, 3.1 + i), col, `stroke="rgba(0,0,0,.18)" stroke-width="2"`); });
-		z += r(-7, 10, 14, 96, '#cdb08a', 'opacity=".9"');
-		for (let y = 18; y < 104; y += 8) z += ln(-7, y, 7, y, '#a88b65', 1.2);
-		const nodes = [[-60, -20, '#22d3ee'], [44, -44, C.gold], [62, 20, '#c084fc'], [-30, -56, '#f87171'], [-44, 46, C.gold], [20, 58, '#22d3ee'], [-18, -6, '#c084fc'], [28, 0, C.gold]];
-		for (const [x, y, col] of nodes) z += c(x, y, 9, col, 'opacity=".3"') + poly([[x, y - 6], [x + 4.5, y], [x, y + 6], [x - 4.5, y]], col, `stroke="${C.navy}" stroke-width="1"`);
-		// wishing well near the entrance
-		z += c(44, 92, 11, '#9aa3ad', `stroke="#5b6573" stroke-width="2"`) + c(44, 92, 6.5, C.water);
-		s += zoneG(a, rc, z);
-		// chest spawn points
-		for (const [u, v] of [[-50, 30], [30, -40], [56, 18]]) { const [x, y] = L(a, rc, u, v); s += chestMark(x, y, 1); }
-	}
-
-	// ---------------- rail ring (elevated)
-	s += c(CX + 4, CY + 7, R.rail, 'none', 'stroke="rgba(0,0,0,.22)" stroke-width="14"');
-	for (let a = 0; a < 360; a += 20) { const [x, y] = P(R.rail, a + 10); s += r(x - 4, y - 4, 8, 8, '#4a3a2c'); }
-	s += c(CX, CY, R.rail, 'none', `stroke="${C.deck}" stroke-width="13"`);
-	s += c(CX, CY, R.rail, 'none', `stroke="${C.tie}" stroke-width="13" stroke-dasharray="2.2 5"`);
-	s += c(CX, CY, R.rail - 3.6, 'none', `stroke="${C.rail}" stroke-width="1.8"`) + c(CX, CY, R.rail + 3.6, 'none', `stroke="${C.rail}" stroke-width="1.8"`);
-	for (const a of [0, 90, 180, 270]) { const [x, y] = P(R.rail, a); s += `<g transform="translate(${f(x)} ${f(y)}) rotate(${a})">` + r(-22, -12, 44, 24, '#5d6b7a', `rx="3" stroke="${C.navy}" stroke-width="1.5"`) + ln(-22, 0, 22, 0, '#8796a6', 2) + '</g>'; }
-	for (const [a, col] of [[47, '#e5483b'], [227, '#3b82f6'], [137, '#f59e0b']]) {
-		const [x, y] = P(R.rail, a);
-		s += `<g transform="translate(${f(x)} ${f(y)}) rotate(${a + 90})">` + r(-9, -6, 18, 12, col, `rx="2.5" stroke="${C.navy}" stroke-width="1.5"`) + c(-3, 0, 2.2, C.gold) + c(3, 0, 2.2, '#22d3ee') + '</g>';
-		for (const k of [1, 2]) { const [ax, ay] = P(R.rail + 0.1, a - 6 * k); s += `<g transform="translate(${f(ax)} ${f(ay)}) rotate(${a - 6 * k + 90})">` + pth('M -3 -4 L 2 0 L -3 4', 'none', `stroke="#fff" stroke-width="2" opacity="${0.9 - k * 0.3}"`) + '</g>'; }
-	}
-
-	// ---------------- dynamic markers
-	for (const [rr, a] of [[262, 102], [250, 196], [282, 345], [420, 45], [268, 258]]) { const [x, y] = P(rr, a); s += meteorMark(x, y, 0.95); }
-	for (const [rr, a] of [[275, 160], [282, 318]]) { const [x, y] = P(rr, a); s += chestMark(x, y, 1); }
-	// the worm on the deep ring, heading clockwise
-	{ const [wx, wy] = P(655, 152); s += `<g transform="translate(${f(wx)} ${f(wy)}) rotate(${152 + 90})">${icon('worm', 0, 0, 1.6)}</g>`; }
-	s += pth(`M ${P(655, 160).map(f).join(' ')} A 655 655 0 0 1 ${P(655, 176).map(f).join(' ')}`, 'none', `stroke="${C.magma}" stroke-width="2.5" marker-end="url(#arrowM)"`);
-	return s;
-}
-
-// ------------------------------------------------------------------ MAP LABELS (drawn on top)
-function drawMapLabels() {
-	let s = '';
-	// curved texts
-	DEFS.push(`<path id="roadArcN" d="M ${P(R.road, -40).map(f).join(' ')} A ${R.road} ${R.road} 0 0 1 ${P(R.road, 40).map(f).join(' ')}"/>`);
-	DEFS.push(`<path id="roadArcS" d="M ${P(R.road, 220).map(f).join(' ')} A ${R.road} ${R.road} 0 0 0 ${P(R.road, 140).map(f).join(' ')}"/>`);
-	DEFS.push(`<path id="railArc" d="M ${P(R.rail + 24, 300).map(f).join(' ')} A ${R.rail + 24} ${R.rail + 24} 0 0 1 ${P(R.rail + 24, 345).map(f).join(' ')}"/>`);
-	DEFS.push(`<path id="ringArc" d="M ${P(675, 70).map(f).join(' ')} A 675 675 0 0 1 ${P(675, 112).map(f).join(' ')}"/>`);
-	DEFS.push(`<path id="mtnArc" d="M ${P(712, 236).map(f).join(' ')} A 712 712 0 0 1 ${P(712, 296).map(f).join(' ')}"/>`);
-	const tp = (id, str, o = {}) => `<text font-family="'Barlow Condensed', sans-serif" font-size="${o.size || 13}" font-weight="${o.weight || 800}" fill="${o.fill || C.ink}" letter-spacing="${o.ls || 2}" ${o.halo === false ? '' : `stroke="${o.haloColor || C.halo}" stroke-width="3.4" paint-order="stroke" stroke-linejoin="round"`}><textPath href="#${id}" startOffset="50%" text-anchor="middle">${esc(str)}</textPath></text>`;
-	s += tp('roadArcN', 'AVENIDA DOS LOTES', { fill: '#6b5532', halo: false, size: 13 });
-	s += tp('roadArcS', 'AVENIDA DOS LOTES', { fill: '#6b5532', halo: false, size: 13 });
-	s += tp('railArc', 'TRILHO DOS VAGONETES (ELEVADO)', { size: 13.5, ls: 1.5 });
-	s += tp('ringArc', 'ANEL PROFUNDO · LIGA TODOS OS TÚNEIS', { size: 13.5, ls: 1.5, fill: '#ffd2bf' });
-	s += tp('mtnArc', 'MONTANHA · OS TÚNEIS ENTRAM AQUI', { size: 14, ls: 2.5, fill: '#efe6da' });
-
-	// plot labels
-	PLOTS.forEach((a, i) => {
-		const [x, y] = P(R.plot - 30, a);
-		s += T(x, y + 5, `LOTE ${i + 1}`, { size: 15, weight: 800, anchor: 'middle' });
+	// tunnels: straight from the back of each lot into the mountain, one colour per layer
+	const LAYERS = [[150, 122, C.terra], [122, 94, C.pedra], [94, 66, C.cristal], [66, 38, C.magma], [38, 12, C.nucleo]];
+	PLOTS.forEach(([cx], i) => {
+		const m = (y) => (i < 4 ? y : WH - y);
+		s += ln(cx, m(150), cx, m(12), '#2a1f17', 14, 'opacity=".55"');
+		for (const [a, b, col] of LAYERS) s += ln(cx, m(a), cx, m(b), col, 7.5);
+		s += ln(cx - 7, m(150), cx - 7, m(12), C.ink, 0.8, 'stroke-dasharray="4 3" opacity=".85"') + ln(cx + 7, m(150), cx + 7, m(12), C.ink, 0.8, 'stroke-dasharray="4 3" opacity=".85"');
+		s += ln(cx, m(12), cx, m(5), C.ink, 1, 'stroke-dasharray="2 2" marker-end="url(#arrowW)"');
 	});
 
-	// zone labels + badges
-	const zl = (x, y, n, cat, title, sub) => badge(x - 4, y - 6, n, CAT[cat]) + T(x + 16, y, title, { size: 19, weight: 800, ls: 0.6 }) + (sub ? T(x + 16, y + 17, sub, { size: 13, weight: 600, fill: C.dim }) : '');
-	// 1 lobby / 10 portals
-	{
-		const { a, rc } = Z.lobby;
-		const [x, y] = L(a, rc, 0, -92); s += zl(x - 76, y + 6, 1, 'social', 'LOBBY · CHEGADA');
-		const [sx, sy] = L(a, rc, 0, -34); s += T(sx, sy + 4.5, 'SPAWN', { size: 12.5, weight: 800, anchor: 'middle', fill: '#0f766e', halo: false });
-		const items = [[-62, 30, 'TUTORIAL'], [62, 30, 'DIÁRIO'], [62, -10, 'CÓDIGOS'], [-62, -10, 'GRUPO']];
-		for (const [lx, ly, t] of items) { const [px, py] = L(a, rc, lx, -ly); s += T(px, py + 21, t, { size: 11.5, weight: 700, anchor: 'middle', fill: '#e6fffb' }); }
-		[['TROCAS', -78], ['EVENTOS', -26], ['VIP', 26], ['TORNEIO', 78]].forEach(([t, lx]) => { const [px, py] = L(a, rc, lx, 100); s += T(px, py - 25, t, { size: 12.5, weight: 800, anchor: 'middle' }); });
-		const [bx, by] = L(a, rc, 0, 100); s += badge(bx - 146, by - 4, 10, CAT.transporte) + T(bx - 166, by + 1, 'PORTAIS', { size: 16, weight: 800, anchor: 'end' }) + T(bx - 166, by + 17, 'p/ outros lobbies', { size: 12.5, weight: 600, fill: C.dim, anchor: 'end' });
-		// guide light: spawn -> hub -> lote 4
-		const pts = [];
-		for (let yy = sy - 34; yy > CY + R.hub + 6; yy -= 11) pts.push([CX, yy]);
-		for (let aa = 180; aa >= 148; aa -= 4.6) pts.push(P(R.hub + 8, aa));
-		for (let rr = R.hub + 18; rr < 338; rr += 11) pts.push(P(rr, 148));
-		for (const [px, py] of pts) s += c(px, py, 4.6, '#fff3b0', 'opacity=".35"') + c(px, py, 2.4, '#ffe27a', `stroke="${C.navy}" stroke-width=".7"`);
-		s += T(CX + 16, CY + 258, 'luz guia até o seu lote', { size: 12, weight: 700, fill: '#ffe9a3' });
+	// valley floor + cliff hachures
+	const valley = roundedPoly(VALLEY, 10);
+	s += pth(valley, 'url(#grassGrad)') + pth(valley, 'none', `stroke="${C.grassEdge}" stroke-width="2"`);
+	let hach = '';
+	VALLEY.forEach(([x0, y0], i) => {
+		const [x1, y1] = VALLEY[(i + 1) % VALLEY.length], len = Math.hypot(x1 - x0, y1 - y0), ux = (x1 - x0) / len, uy = (y1 - y0) / len;
+		for (let t = 10; t < len - 9; t += 6) { const qx = x0 + ux * t, qy = y0 + uy * t; hach += `M ${f(qx + uy * 1.5)} ${f(qy - ux * 1.5)} L ${f(qx + uy * 8)} ${f(qy - ux * 8)} `; }
+	});
+	s += pth(hach, 'none', `stroke="${C.rockEdge}" stroke-width="1.1" opacity=".85"`);
+
+	// market wings, then paths (avenues, side streets, alleys through the wings)
+	s += r(206, 282, 198, 156, '#e3dbc8', 'rx="4"') + r(664, 282, 198, 156, '#e3dbc8', 'rx="4"');
+	const PATHS = [[188, 250, 880, 280], [188, 440, 880, 470], [188, 156, 206, 564], [862, 156, 880, 564], [206, 348, 414, 372], [654, 348, 862, 372]];
+	for (const [x0, y0, x1, y1] of PATHS) s += r(x0 - 1.5, y0 - 1.5, x1 - x0 + 3, y1 - y0 + 3, C.pathEdge, 'rx="3"');
+	for (const [x0, y0, x1, y1] of PATHS) s += r(x0, y0, x1 - x0, y1 - y0, C.path, 'rx="2"');
+	// hedges between the lots, trees around the mine and the arena
+	for (const gx of [306, 420, 634, 748]) for (const [y0, y1] of [[156, 244], [476, 564]]) {
+		s += r(gx + 2.5, y0, 9, y1 - y0, '#3f8a46', 'rx="4.5"');
+		for (let y = y0 + 5; y < y1 - 2; y += 10) s += c(gx + 7, y, 4.2, '#4f9c55');
 	}
-	// 2 hub
-	s += badge(CX - 68, CY - 62, 2, CAT.social) + T(CX - 50, CY - 56, 'HUB CENTRAL', { size: 19, weight: 800, ls: 0.6 });
-	s += T(CX, CY - 33, 'BROCA GIGANTE', { size: 11, weight: 800, anchor: 'middle', fill: '#5b4a2a', halo: false });
-	s += T(CX, CY + 52, 'telão: próximo evento', { size: 11.5, weight: 700, anchor: 'middle', fill: '#4b5563', halo: false });
-	// 11 merchant
-	{ const [mx, my] = P(97, 135), [lx, ly] = P(163, 135); s += ln(mx, my, lx - 30, ly - 6, C.ink, 1.2, 'opacity=".9"') + badge(lx - 30, ly - 6, 11, CAT.evento) + T(lx - 12, ly - 1, 'MERCADOR', { size: 14, weight: 800 }) + T(lx - 12, ly + 13, 'a cada 1 h', { size: 12, weight: 700, fill: C.dim }); }
-	// 3 plot badge (lote 8)
-	{ const [x, y] = P(R.plot - 30, 302); s += badge(x - 48, y, 3, CAT.lote); }
-	// 4 tunnel badge (tunnel of lote 7, 302°)
-	{ const [x, y] = P(560, 302); s += badge(x - 18, y - 40, 4, CAT.mina) + T(x, y - 35, 'TÚNEL', { size: 16, weight: 800 }) + T(x, y - 20, 'cada lote tem o seu', { size: 12, weight: 600, fill: '#efe6da' }); }
-	// depth ticks along tunnel of lote 6 (238°)
-	[[510, '100 m'], [568, '500 m'], [626, '1,5 km'], [684, '5 km']].forEach(([rr, t]) => { const [x, y] = P(rr, 238); const ox = Math.cos(238 * deg) * 12, oy = Math.sin(238 * deg) * 12; s += ln(x - ox, y - oy, x + ox, y + oy, C.ink, 1.6) + T(x + ox * 1.6, y + oy * 1.6 + 4, t, { size: 11.5, weight: 700, anchor: 'end', fill: C.ink }); });
-	// 5 cavern badge (225°)
-	{ const [x, y] = P(597, 225); s += badge(x + 34, y + 30, 5, CAT.mina) + T(x + 52, y + 35, 'CAVERNA', { size: 15, weight: 800 }) + T(x + 52, y + 50, 'compartilhada', { size: 12, weight: 600, fill: '#efe6da' }); }
-	// 12 worm
-	{ const [x, y] = P(655, 152); s += badge(x + 32, y + 18, 12, CAT.evento) + T(x + 50, y + 23, 'VERME GIGANTE', { size: 15, weight: 800 }) + T(x + 50, y + 38, 'chefe que ronda o anel', { size: 12, weight: 600, fill: '#ffd2bf' }); }
-	// 6 events
-	{
-		const { a, rc } = Z.eventos;
-		const [x, y] = L(a, rc, 0, -78); s += zl(x - 88, y + 6, 6, 'evento', 'ZONA DE EVENTOS', 'eventos ao vivo + shows');
-		const [cx, cy] = L(a, rc, 0, 8); s += T(cx, cy + 34, 'CRATERA DO METEORO', { size: 12, weight: 800, anchor: 'middle' });
-		const [sx, sy] = L(a, rc, 0, 92); s += T(sx, sy + 5, 'PALCO + TELÃO', { size: 12, weight: 800, anchor: 'middle', halo: false });
-		const [ax, ay] = L(a, rc, -82, 6); s += T(ax - 14, ay + 4, 'ARQUIBANCADA', { size: 11, weight: 700, anchor: 'end' });
-		const [hx, hy] = P(512, -5); s += T(hx - 12, hy - 6, 'saída do Verme', { size: 11, weight: 700, anchor: 'end', fill: '#ffd2bf' });
+	for (const [x, y] of [[62, 170], [174, 170], [62, 550], [174, 550], [894, 170], [1006, 170], [894, 550], [1006, 550]]) s += c(x + 1, y + 1.5, 7, 'rgba(0,0,0,.18)') + c(x, y, 7, C.tree) + c(x - 2, y - 2, 3.5, C.treeLight);
+
+	// hub plaza
+	s += r(412, 286, 244, 148, C.pathEdge, 'rx="16"') + r(414, 288, 240, 144, C.plaza, 'rx="14"');
+	let tiles = '';
+	for (let x = 430; x <= 640; x += 16) tiles += `M ${x} 288 V 432 `;
+	for (let y = 304; y <= 420; y += 16) tiles += `M 414 ${y} H 654 `;
+	s += `<g clip-path="url(#plazaClip)">${pth(tiles, 'none', `stroke="${C.plazaLine}" stroke-width=".8"`)}</g>`;
+	for (const [x, y] of [[430, 304], [638, 304], [430, 416], [638, 416]]) s += c(x, y, 8, '#5fae5a', 'stroke="#8a7a60" stroke-width="1.5"') + c(x - 2.5, y - 2, 1.8, '#f472b6') + c(x + 2.5, y + 2, 1.8, '#facc15');
+	for (const x of [409, 659]) for (const y of [298, 322, 398, 422]) s += c(x, y, 3.6, '#4f9c55');
+	// giant drill monument, countdown screen, merchant spot
+	s += poly(Array.from({ length: 8 }, (_, i) => [534 + 22 * Math.cos((i * 45 + 22.5) * deg), 352 + 22 * Math.sin((i * 45 + 22.5) * deg)]), '#d6ceb9', 'stroke="#a99f88" stroke-width="1.5"');
+	s += c(534, 352, 13.5, '#f2b134', 'stroke="#b7861f" stroke-width="1.5"');
+	for (let i = 0; i < 4; i++) s += pth(`M 534 352 a ${6 + i} ${6 + i} 0 0 1 ${f(12 * Math.cos(i * 1.57))} ${f(12 * Math.sin(i * 1.57))}`, 'none', 'stroke="#a8740f" stroke-width="1.5"');
+	s += c(534, 352, 2.6, '#fff1a8') + r(498, 379, 72, 14, C.dark, 'rx="2"');
+	s += c(612, 410, 12, 'rgba(251,113,133,.16)', `stroke="${CAT.evento}" stroke-width="1.6" stroke-dasharray="4 2.5"`) + icon('wagon', 612, 411, 0.75);
+	// shops: 4 on each side of the plaza
+	for (const [x0, y0, , col, ic, aw] of SHOPS) {
+		s += r(x0 + 2, y0 + 3, 84, 58, 'rgba(0,0,0,.18)', 'rx="3"') + r(x0, y0, 84, 58, col, 'rx="3"') + ln(x0 + 3, y0 + 29, x0 + 81, y0 + 29, 'rgba(255,255,255,.28)', 1.2);
+		for (let i = 0; i < 7; i++) s += r(x0 + i * 12, aw === 1 ? y0 + 52 : y0, 12, 6, i % 2 ? '#ffffff' : 'rgba(0,0,0,.25)');
+		s += c(x0 + 15, y0 + 29, 9.5, 'rgba(12,38,69,.6)') + icon(ic, x0 + 15, y0 + 29, 0.8);
 	}
-	// 7 arena
-	{
-		const { a, rc } = Z.arena;
-		const [x, y] = L(a, rc, -128, -46); s += zl(x - 6, y, 7, 'evento', 'ARENA', 'corrida de escavação');
-		const [qx, qy] = L(a, rc, 0, -54); s += T(qx, qy + 72, 'FILA', { size: 12, weight: 800, anchor: 'middle' });
+
+	// lots (top row: tunnel to the north; bottom row: tunnel to the south)
+	PLOTS.forEach(([cx, cy], i) => (s += `<g transform="translate(${cx} ${cy}) rotate(${i < 4 ? 0 : 180}) scale(${(100 / 110).toFixed(4)})">${plotLocal(PLAYER[i])}</g>`));
+
+	// live events zone (top centre, carved into the mountain)
+	s += r(440, 104, 188, 142, '#d6c4a0', 'rx="24" stroke="#7d6b56" stroke-width="2.4"') + r(446, 110, 176, 130, 'none', 'rx="20" stroke="#e8dcbf" stroke-width="1.3" stroke-dasharray="1.5 4"');
+	s += ln(504, 57, 510, 150, C.magma, 7, 'opacity=".55"') + ln(504, 57, 510, 150, C.ink, 0.8, 'stroke-dasharray="4 3"');
+	const arcD = (rr, a0, a1) => `M ${f(534 + rr * Math.cos(a0 * deg))} ${f(182 + rr * Math.sin(a0 * deg))} A ${rr} ${rr} 0 0 1 ${f(534 + rr * Math.cos(a1 * deg))} ${f(182 + rr * Math.sin(a1 * deg))}`;
+	for (const [a0, a1] of [[150, 210], [-30, 30]]) s += pth(arcD(54, a0, a1), 'none', 'stroke="#9aa6b5" stroke-width="13"') + pth(arcD(54, a0, a1), 'none', 'stroke="#c3ccd6" stroke-width="13" stroke-dasharray="1.5 3.5"');
+	s += r(488, 104, 92, 6, C.dark, 'rx="1.5"') + r(492, 105.6, 84, 2.4, C.cyan) + r(482, 110, 104, 17, '#e5483b', 'rx="2.5"') + r(482, 124, 104, 3, '#a3271d') + c(488, 116, 2.2, '#fff3c4') + c(580, 116, 2.2, '#fff3c4');
+	s += c(534, 182, 40, '#b9a284') + c(534, 182, 34, 'url(#craterGrad)');
+	for (let i = 0; i < 7; i++) { const a = (i * 51 + 10) * deg; s += ln(534 + 8 * Math.cos(a), 182 + 8 * Math.sin(a), 534 + 28 * Math.cos(a), 182 + 28 * Math.sin(a), '#ff8a3d', 1.2, 'opacity=".7"'); }
+	s += c(534, 182, 22, 'url(#gOrange)') + c(534, 182, 8.5, '#ff9b4a', 'stroke="#7a3b1e" stroke-width="1.5"') + c(531.5, 179.5, 2.8, '#ffe0a3');
+	s += c(510, 150, 5.5, '#1b1411', `stroke="${C.magma}" stroke-width="1.6"`);
+
+	// lobby / spawn (bottom centre, carved into the mountain), portals at the back
+	s += r(440, 474, 188, 142, '#a6e3d8', 'rx="24" stroke="#5aa99b" stroke-width="2.4"');
+	let lt = '';
+	for (let x = 456; x <= 612; x += 16) lt += `M ${x} 474 V 616 `;
+	for (let y = 490; y <= 602; y += 16) lt += `M 440 ${y} H 628 `;
+	s += `<g clip-path="url(#lobbyClip)">${pth(lt, 'none', 'stroke="#c4eee6" stroke-width=".8"')}</g>`;
+	s += c(534, 530, 24, '#e8fffb', 'stroke="#2ec4a9" stroke-width="2.2"') + c(534, 530, 15, 'none', 'stroke="#2ec4a9" stroke-width="1.4" stroke-dasharray="3 2"');
+	s += r(507, 500, 6, 6, '#8a6a48') + r(555, 500, 6, 6, '#8a6a48') + r(507, 501.5, 54, 3, '#8a6a48');
+	s += c(478, 528, 6, '#f6c445', `stroke="${C.navy}" stroke-width="1.2"`) + r(582, 522, 18, 12, C.gold, 'rx="2" stroke="#8a5520" stroke-width="1.2"');
+	for (const [k, x] of [['trocas', 465], ['eventos', 511], ['vip', 557], ['torneio', 603]]) s += c(x, 600, 16, `url(#portal_${k})`, 'opacity=".55"') + c(x, 600, 10.5, `url(#portal_${k})`, 'stroke="#cfc6b2" stroke-width="3"');
+
+	// public mine (west): open pit with terraces, a ramp from the street, rare veins
+	s += r(56, 164, 124, 392, '#b9997a', 'rx="30" stroke="#7a6046" stroke-width="2.4"');
+	for (const [d, col, rx] of [[12, '#a8865f', 24], [24, '#937150', 18], [36, '#7b5c40', 12], [48, '#634830', 8]]) s += r(56 + d, 164 + d, 124 - 2 * d, 392 - 2 * d, col, `rx="${rx}" stroke="rgba(0,0,0,.18)" stroke-width="1.4"`);
+	s += r(110, 352, 78, 16, '#cdb08a');
+	for (let x = 116; x < 188; x += 7) s += ln(x, 352, x, 368, '#a88b65', 0.9);
+	for (const [x, y, col] of [[84, 205, '#22d3ee'], [150, 262, C.gold], [88, 318, '#c084fc'], [156, 420, '#f87171'], [82, 505, C.gold], [120, 455, '#22d3ee'], [118, 236, '#c084fc'], [150, 530, C.gold]]) s += c(x, y, 7, col, 'opacity=".3"') + poly([[x, y - 4.6], [x + 3.4, y], [x, y + 4.6], [x - 3.4, y]], col, `stroke="${C.navy}" stroke-width=".8"`);
+	s += c(166, 184, 8, '#9aa3ad', 'stroke="#5b6573" stroke-width="1.6"') + c(166, 184, 5, C.water);
+	for (const [x, y] of [[90, 252], [150, 478], [100, 432]]) s += chestMark(x, y, 0.85);
+
+	// minigame arena (east): scoreboard, 8 lanes, queue pads, podium
+	s += r(888, 164, 124, 392, '#efcf86', 'rx="24" stroke="#a9853c" stroke-width="2.4"');
+	s += r(900, 174, 100, 18, C.dark, 'rx="2.5"');
+	for (let i = 0; i < 8; i++) s += r(905 + i * 11.8, 178, 8, 10, ['#facc15', '#22c55e', '#38bdf8', '#fb7185'][i % 4]);
+	for (let i = 0; i < 8; i++) { const y = 204 + i * 36; s += r(928, y, 76, 36, i % 2 ? '#e8bf62' : '#f4d891') + r(966, y + 8, 20, 20, '#4a3221', 'rx="1.5"') + r(969, y + 11, 14, 14, '#2a1b12'); }
+	s += r(925.5, 204, 2.5, 288, '#ffffff');
+	[306, 338, 370, 402].forEach((y, i) => (s += c(906, y, 9, ['#38bdf8', '#4ade80', '#facc15', '#fb7185'][i], 'stroke="#fff" stroke-width="2"')));
+	s += r(922, 512, 22, 26, '#cbd5e1') + r(944, 504, 22, 34, C.gold) + r(966, 518, 22, 20, '#d97706');
+
+	// elevated cart rail over the avenues, 4 stations, carts running clockwise
+	const railD = roundedPoly(RAIL, 18);
+	s += `<path d="${railD}" fill="none" stroke="rgba(0,0,0,.22)" stroke-width="13" transform="translate(3 5)"/>`;
+	s += pth(railD, 'none', `stroke="${C.deck}" stroke-width="12"`) + pth(railD, 'none', `stroke="${C.tie}" stroke-width="12" stroke-dasharray="2 4.5"`);
+	s += pth(roundedPoly([[200.6, 268.6], [867.4, 268.6], [867.4, 451.4], [200.6, 451.4]], 14.4), 'none', `stroke="${C.rail}" stroke-width="1.3"`);
+	s += pth(roundedPoly([[193.4, 261.4], [874.6, 261.4], [874.6, 458.6], [193.4, 458.6]], 21.6), 'none', `stroke="${C.rail}" stroke-width="1.3"`);
+	for (const [x, y, rot] of STATIONS) s += `<g transform="translate(${x} ${y}) rotate(${rot})">${r(-20, -11, 40, 22, '#5d6b7a', `rx="2.5" stroke="${C.navy}" stroke-width="1.2"`)}${ln(-20, 0, 20, 0, '#8796a6', 1.6)}</g>`;
+	for (const [x, y, rot, col] of [[340, 265, 0, '#e5483b'], [871, 300, 90, '#f59e0b'], [740, 455, 180, '#3b82f6'], [197, 420, 270, '#22c55e']]) {
+		s += `<g transform="translate(${x} ${y}) rotate(${rot})">${r(-8, -5.5, 16, 11, col, `rx="2" stroke="${C.navy}" stroke-width="1.2"`)}${c(-2.5, 0, 2, C.gold)}${c(2.5, 0, 2, '#22d3ee')}`;
+		for (const k of [1, 2]) s += pth(`M ${-10 - k * 6} -3.5 L ${-6 - k * 6} 0 L ${-10 - k * 6} 3.5`, 'none', `stroke="#fff" stroke-width="1.6" opacity="${0.95 - k * 0.3}"`);
+		s += '</g>';
 	}
-	// 8 public mine
-	{
-		const { a, rc } = Z.mina;
-		const [x, y] = L(a, rc, 0, 0); s += zl(x - 70, y - 128, 8, 'mina', 'MINA PÚBLICA', 'veios raros p/ todos');
-		const [wx, wy] = L(a, rc, 44, -92); s += T(wx, wy + 26, 'POÇO DOS DESEJOS', { size: 11.5, weight: 700, anchor: 'middle' });
+
+	// event markers, the worm on the deep ring, the guide light from the spawn to a lot
+	for (const [x, y] of [[313, 212], [755, 512], [409, 335], [659, 335]]) s += meteorMark(x, y, 0.8);
+	s += `<g transform="translate(930 668) rotate(180)">${icon('worm', 0, 0, 1.1)}</g>` + ln(906, 668, 874, 668, C.magma, 2, 'marker-end="url(#arrowM)"');
+	for (let i = 0; i < GUIDE.length - 1; i++) {
+		const [x0, y0] = GUIDE[i], [x1, y1] = GUIDE[i + 1], len = Math.hypot(x1 - x0, y1 - y0);
+		for (let t = 0; t < len; t += 9) { const x = x0 + ((x1 - x0) * t) / len, y = y0 + ((y1 - y0) * t) / len; s += c(x, y, 3.2, '#fff3b0', 'opacity=".35"') + c(x, y, 1.6, '#ffe27a', `stroke="${C.navy}" stroke-width=".45"`); }
 	}
-	// 9 rail
-	{ const [x, y] = P(R.rail, 0); s += badge(x + 34, y - 1, 9, CAT.transporte) + T(x + 52, y + 4, 'ESTAÇÃO', { size: 12.5, weight: 800 }); }
+	// 50-stud grid over the map
+	let gl = '';
+	for (let x = 50; x < WW; x += 50) gl += `M ${x} 0 V ${WH} `;
+	for (let y = 50; y < WH; y += 50) gl += `M 0 ${y} H ${WW} `;
+	s += pth(gl, 'none', 'stroke="#ffffff" stroke-width=".5" opacity=".07"');
 	return s;
 }
 
-// ------------------------------------------------------------------ corner insets
+// ------------------------------------------------------------------ MAP LABELS (px, drawn on top)
+function drawMapLabels() {
+	let s = '';
+	const zl = (x, y, n, cat, title, sub) => badge(x - 4, y - 6, n, CAT[cat]) + T(x + 16, y, title, { size: 19, weight: 800, ls: 0.6 }) + (sub ? T(x + 16, y + 17, sub, { size: 13, weight: 600, fill: C.dim }) : '');
+	// hub
+	s += zl(X(534) - 62, Y(306), 2, 'social', 'HUB CENTRAL');
+	s += T(X(534), Y(326), 'BROCA GIGANTE', { size: 11, weight: 800, anchor: 'middle', fill: '#5b4a2a', halo: false });
+	s += T(X(534), Y(386) + 4, 'EVENTO EM 04:59', { size: 11, weight: 800, anchor: 'middle', fill: '#ffb15c', halo: false, ls: 0.6 });
+	s += badge(X(590), Y(410), 11, CAT.evento) + T(X(590) - 20, Y(410) - 1, 'MERCADOR', { size: 14, weight: 800, anchor: 'end' }) + T(X(590) - 20, Y(410) + 13, 'a cada 1 h', { size: 12, weight: 700, anchor: 'end', fill: C.dim });
+	for (const [x0, y0, name] of SHOPS) s += T(X(x0 + 51), Y(y0 + 29) + 5, name, { size: 14.5, weight: 800, anchor: 'middle', ls: 0.4 });
+	// lots
+	PLOTS.forEach(([cx], i) => (s += T(X(cx), Y(i < 4 ? 236 : 484) + 5, `LOTE ${i + 1}`, { size: 15, weight: 800, anchor: 'middle' })));
+	s += badge(X(256) - 48, Y(236), 3, CAT.lote);
+	// live events zone
+	s += zl(X(534) - 82, Y(241), 6, 'evento', 'ZONA DE EVENTOS');
+	s += T(X(534), Y(207), 'CRATERA DO METEORO', { size: 11, weight: 800, anchor: 'middle' });
+	s += T(X(534), Y(121), 'PALCO + TELÃO', { size: 11.5, weight: 800, anchor: 'middle', halo: false });
+	s += T(X(503), Y(149), 'saída do Verme', { size: 10.5, weight: 700, anchor: 'end', fill: '#ffd2bf' });
+	// lobby + portals
+	s += zl(X(534) - 76, Y(493), 1, 'social', 'LOBBY · CHEGADA');
+	s += T(X(534), Y(530) + 4, 'SPAWN', { size: 11.5, weight: 800, anchor: 'middle', fill: '#0f766e', halo: false });
+	s += T(X(478), Y(546) + 4, 'TUTORIAL', { size: 11, weight: 700, anchor: 'middle', fill: '#e6fffb' }) + T(X(591), Y(546) + 4, 'DIÁRIO', { size: 11, weight: 700, anchor: 'middle', fill: '#e6fffb' });
+	s += badge(X(534) - 92, Y(578) - 5, 10, CAT.transporte) + T(X(534) - 74, Y(578), 'PORTAIS → OUTROS LOBBIES', { size: 15, weight: 800 });
+	for (const [t, x] of [['TROCAS', 465], ['EVENTOS', 511], ['VIP', 557], ['TORNEIO', 603]]) s += T(X(x), Y(627), t, { size: 11.5, weight: 800, anchor: 'middle' });
+	// mine + arena
+	s += zl(X(60), Y(126), 8, 'mina', 'MINA PÚBLICA', 'veios raros p/ todos');
+	s += T(X(156), Y(186) + 4, 'POÇO DOS DESEJOS', { size: 11, weight: 700, anchor: 'end' });
+	s += zl(X(894), Y(126), 7, 'evento', 'ARENA', 'corrida de escavação');
+	s += T(X(906), Y(424), 'FILA', { size: 12, weight: 800, anchor: 'middle' });
+	for (const [x, y, t] of [[933, 529, '2'], [955, 524, '1'], [977, 532, '3']]) s += T(X(x), Y(y), t, { size: 12, weight: 800, anchor: 'middle', fill: '#3a2a12', halo: false });
+	s += T(X(955), Y(551), 'PÓDIO', { size: 11, weight: 800, anchor: 'middle' });
+	// underground
+	s += zl(X(720), Y(116), 4, 'mina', 'TÚNEL', 'cada lote tem o seu');
+	s += zl(X(280), Y(116), 5, 'mina', 'CAVERNA', 'compartilhada');
+	for (const [y, t] of [[598, '100 m'], [626, '500 m'], [654, '1,5 km'], [682, '5 km']]) s += ln(X(256) - 11, Y(y), X(256) + 11, Y(y), C.ink, 1.6) + T(X(256) - 15, Y(y) + 4, t, { size: 11.5, weight: 700, anchor: 'end' });
+	s += T(X(56), Y(44), 'ANEL PROFUNDO · liga todos os túneis', { size: 12.5, weight: 800, fill: '#ffd2bf', ls: 0.5 });
+	s += T(X(892), Y(606), 'MONTANHA', { size: 14, weight: 800, fill: '#efe6da', ls: 2.5 }) + T(X(892), Y(606) + 16, 'os túneis entram aqui', { size: 12, weight: 600, fill: '#efe6da' });
+	s += zl(X(892), Y(694), 12, 'evento', 'VERME GIGANTE', 'chefe que ronda o anel');
+	// rail + guide light
+	s += badge(X(572), Y(265), 9, CAT.transporte) + T(X(572) + 18, Y(265) + 5, 'ESTAÇÃO', { size: 13, weight: 800 });
+	s += T(X(226), Y(455) + 4.5, 'TRILHO ELEVADO · POR CIMA DAS AVENIDAS', { size: 12, weight: 800, ls: 0.8 });
+	s += T(X(441), Y(364) + 4, 'luz guia até o seu lote', { size: 12, weight: 700, fill: '#ffe9a3', anchor: 'end' });
+	return s;
+}
+function drawRulers() {
+	let s = '';
+	for (let x = 0; x <= WW; x += 50) { s += ln(X(x), MY - (x % 100 ? 5 : 9), X(x), MY - 1, C.dim, 1.2); if (x % 100 === 0) s += T(X(x), MY - 13, String(x), { size: 11, weight: 700, anchor: 'middle', fill: C.dim, halo: false }); }
+	for (let y = 0; y <= WH; y += 50) { s += ln(MX - (y % 100 ? 5 : 9), Y(y), MX - 1, Y(y), C.dim, 1.2); if (y % 100 === 0) s += T(MX - 12, Y(y) + 4, String(y), { size: 11, weight: 700, anchor: 'end', fill: C.dim, halo: false }); }
+	s += T(X(WW), MY - 13, 'studs', { size: 11, weight: 700, anchor: 'end', fill: C.dim, halo: false });
+	return s;
+}
+
+// ------------------------------------------------------------------ insets under the map
 function frame(x, y, w, h, title) {
 	let s = r(x, y, w, h, 'rgba(12,38,69,.92)', `stroke="${C.frame}" stroke-width="1.5" rx="4"`);
 	for (const [cx, cy, dx, dy] of [[x, y, 1, 1], [x + w, y, -1, 1], [x, y + h, 1, -1], [x + w, y + h, -1, -1]]) s += pth(`M ${cx + dx * 14} ${cy} L ${cx} ${cy} L ${cx} ${cy + dy * 14}`, 'none', `stroke="${C.cyan}" stroke-width="2.5"`);
 	s += T(x + 14, y + 25, title, { size: 15, weight: 800, fill: C.cyan, ls: 1.2, halo: false });
 	return s;
 }
+const IY = 1232, IW = 384, IH = 292;
 function insetPlot() {
-	const x0 = 16, y0 = 146, w = 280, h = 280;
-	let s = frame(x0, y0, w, h, 'DETALHE DO LOTE · 110 × 110 STUDS');
-	const cx = x0 + 150, cy = y0 + 160, k = 1.42;
-	s += r(cx - 55 * k - 4, cy - 55 * k - 26, 110 * k + 8, 26, C.rock, 'rx="3"');
-	for (let i = 0; i < 3; i++) s += ln(cx - 55 * k, cy - 55 * k - 6 - i * 7, cx + 55 * k, cy - 55 * k - 9 - i * 6, C.rockLine, 1);
+	const x0 = MX, y0 = IY, w = IW;
+	let s = frame(x0, y0, w, IH, 'DETALHE DO LOTE · 100 × 100 STUDS');
+	const k = 1.72, cx = x0 + w / 2, cy = y0 + 170;
+	s += r(cx - 55 * k - 4, cy - 55 * k - 24, 110 * k + 8, 24, C.rock, 'rx="3"');
+	for (let i = 0; i < 3; i++) s += ln(cx - 55 * k, cy - 55 * k - 5 - i * 6, cx + 55 * k, cy - 55 * k - 8 - i * 5, C.rockLine, 1);
 	s += `<g transform="translate(${cx} ${cy}) scale(${k})">${plotLocal(PLAYER[0])}</g>`;
-	const lab = (px, py, tx, ty, t, anchor = 'start') => ln(cx + px * k, cy + py * k, tx, ty, C.ink, 1, 'opacity=".8"') + c(cx + px * k, cy + py * k, 2, C.ink) + T(tx + (anchor === 'end' ? -3 : 3), ty + 4, t, { size: 12.5, weight: 700, anchor });
-	s += T(cx, cy - 55 * k - 8, 'BOCA DO TÚNEL (na montanha)', { size: 11.5, weight: 800, anchor: 'middle', fill: '#fff' });
-	s += lab(-36, -34, x0 + 52, cy - 70, 'pets', 'end');
-	s += lab(-37, -2, x0 + 52, cy - 14, 'upgrade', 'end');
-	s += lab(-49, 46, x0 + 52, cy + 48, 'bandeira', 'end');
-	s += lab(30, -47, x0 + w - 36, cy - 76, 'metragem', 'start');
-	s += lab(4, -34, x0 + w - 36, cy - 50, 'trilho', 'start');
-	s += lab(10, -6, x0 + w - 36, cy - 22, 'baú', 'start');
-	s += lab(41, 8, x0 + w - 36, cy + 8, 'vitrine', 'start');
-	s += T(cx, cy + 55 * k + 18, 'portão · placa com o nome', { size: 12.5, weight: 700, anchor: 'middle' });
+	const lab = (px, py, tx, ty, t, anchor) => ln(cx + px * k, cy + py * k, tx, ty, C.ink, 1, 'opacity=".8"') + c(cx + px * k, cy + py * k, 2.2, C.ink) + T(tx + (anchor === 'end' ? -4 : 4), ty + 4, t, { size: 13, weight: 700, anchor });
+	s += T(cx, cy - 55 * k - 8, 'BOCA DO TÚNEL (na montanha)', { size: 12, weight: 800, anchor: 'middle', fill: '#fff' });
+	const Lx = x0 + 92, Rx = x0 + w - 92;
+	s += lab(-36, -34, Lx, cy - 66, 'pets', 'end') + lab(-37, -2, Lx, cy - 6, 'upgrade', 'end') + lab(-49, 46, Lx, cy + 64, 'bandeira', 'end');
+	s += lab(30, -47, Rx, cy - 80, 'metragem', 'start') + lab(4, -34, Rx, cy - 48, 'trilho', 'start') + lab(10, -6, Rx, cy - 14, 'baú', 'start') + lab(41, 8, Rx, cy + 20, 'vitrine', 'start');
+	s += T(cx, cy + 55 * k + 18, 'portão · placa com o nome', { size: 13, weight: 700, anchor: 'middle' });
 	return s;
 }
 function insetLoop() {
-	const x0 = 1364, y0 = 146, w = 280, h = 280;
-	let s = frame(x0, y0, w, h, 'LOOP DO JOGADOR');
+	const x0 = MX + IW + 14, y0 = IY, w = IW;
+	let s = frame(x0, y0, w, IH, 'LOOP DO JOGADOR');
 	const steps = ['Cava no túnel', 'Enche a mochila', 'Vende no Hub', 'Compra melhoria', 'Desce mais fundo'];
-	steps.forEach((t, i) => { const y = y0 + 62 + i * 38; s += c(x0 + 56, y, 12, CAT.lote, `stroke="${C.navy}" stroke-width="2"`) + T(x0 + 56, y + 5, String(i + 1), { size: 14, weight: 800, anchor: 'middle', fill: C.navy, halo: false }) + T(x0 + 76, y + 6, t, { size: 17, weight: 600, body: true, halo: false }); if (i < 4) s += ln(x0 + 56, y + 13, x0 + 56, y + 25, C.dim, 1.5); });
-	s += pth(`M ${x0 + 42} ${y0 + 214} Q ${x0 + 18} ${y0 + 214} ${x0 + 18} ${y0 + 190} L ${x0 + 18} ${y0 + 84} Q ${x0 + 18} ${y0 + 62} ${x0 + 40} ${y0 + 62}`, 'none', `stroke="${C.cyan}" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrowC)"`);
-	s += r(x0 + 14, y0 + 236, w - 28, 32, 'rgba(219,39,119,.18)', `stroke="#db2777" stroke-width="1.5" rx="4"`);
-	s += T(x0 + w / 2, y0 + 257, 'Chegou no Núcleo? RENASCE com bônus', { size: 14, weight: 700, anchor: 'middle', halo: false, fill: '#fbcfe8' });
+	steps.forEach((t, i) => {
+		const y = y0 + 62 + i * 36;
+		s += c(x0 + 56, y, 12, CAT.lote, `stroke="${C.navy}" stroke-width="2"`) + T(x0 + 56, y + 5, String(i + 1), { size: 14, weight: 800, anchor: 'middle', fill: C.navy, halo: false }) + T(x0 + 78, y + 6, t, { size: 17, weight: 600, body: true, halo: false });
+		if (i < 4) s += ln(x0 + 56, y + 13, x0 + 56, y + 23, C.dim, 1.5);
+	});
+	s += pth(`M ${x0 + 42} ${y0 + 206} Q ${x0 + 18} ${y0 + 206} ${x0 + 18} ${y0 + 182} L ${x0 + 18} ${y0 + 86} Q ${x0 + 18} ${y0 + 62} ${x0 + 40} ${y0 + 62}`, 'none', `stroke="${C.cyan}" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrowC)"`);
+	s += r(x0 + 14, y0 + 238, w - 28, 38, 'rgba(219,39,119,.18)', `stroke="#db2777" stroke-width="1.5" rx="4"`);
+	s += T(x0 + w / 2, y0 + 263, 'Chegou no Núcleo? RENASCE com bônus', { size: 15, weight: 700, anchor: 'middle', halo: false, fill: '#fbcfe8' });
 	return s;
 }
 function insetScale() {
-	const x0 = 16, y0 = 1504, w = 280, h = 280;
-	let s = frame(x0, y0, w, h, 'NORTE · ESCALA · MEDIDAS');
-	// north arrow
-	const nx = x0 + 48, ny = y0 + 82;
+	const x0 = MX + 2 * (IW + 14), y0 = IY, w = IW;
+	let s = frame(x0, y0, w, IH, 'NORTE · ESCALA · MEDIDAS');
+	const nx = x0 + 52, ny = y0 + 90;
 	s += c(nx, ny, 26, 'none', `stroke="${C.dim}" stroke-width="1.5"`) + poly([[nx, ny - 30], [nx + 9, ny + 6], [nx, ny], [nx - 9, ny + 6]], C.ink) + poly([[nx, ny + 30], [nx + 9, ny - 6], [nx, ny], [nx - 9, ny - 6]], 'none', `stroke="${C.ink}" stroke-width="1.2"`);
 	s += T(nx, ny - 36, 'N', { size: 16, weight: 800, anchor: 'middle', halo: false });
-	// scale bar 0-150 studs (1 px = 1 stud)
-	const bx = x0 + 104, by = y0 + 82;
-	for (let i = 0; i < 3; i++) s += r(bx + i * 50, by - 5, 50, 10, i % 2 ? C.sheet : C.ink, `stroke="${C.ink}" stroke-width="1.2"`);
-	[0, 50, 100, 150].forEach((v) => (s += T(bx + v, by + 24, String(v), { size: 12.5, weight: 700, anchor: 'middle', halo: false })));
-	s += T(bx + 75, by - 14, 'studs (1 px = 1 stud)', { size: 12.5, weight: 700, anchor: 'middle', halo: false, fill: C.dim });
-	const rows = [['Hub', 'raio 130'], ['Trilho', 'raio 205'], ['Avenida dos Lotes', 'raio 318'], ['Lotes (centro)', 'raio 395'], ['Montanha', 'raio 460 → 745'], ['Hub → lote a pé', '≈ 13 s (16 studs/s)']];
-	rows.forEach(([k, v], i) => { const y = y0 + 142 + i * 22; s += T(x0 + 18, y, k, { size: 14, weight: 600, body: true, halo: false, fill: C.dim }) + T(x0 + w - 18, y, v, { size: 14, weight: 700, anchor: 'end', halo: false }); });
+	const bx = x0 + 130, by = y0 + 90, seg = 50 * K;
+	for (let i = 0; i < 3; i++) s += r(bx + i * seg, by - 5, seg, 10, i % 2 ? C.sheet : C.ink, `stroke="${C.ink}" stroke-width="1.2"`);
+	[0, 50, 100, 150].forEach((v) => (s += T(bx + (v / 50) * seg, by + 24, String(v), { size: 12.5, weight: 700, anchor: 'middle', halo: false })));
+	s += T(bx + 1.5 * seg, by - 14, 'studs', { size: 12.5, weight: 700, anchor: 'middle', halo: false, fill: C.dim });
+	const rows = [['Mapa inteiro', '1.068 × 720'], ['Lote', '100 × 100'], ['Praça do Hub', '240 × 144'], ['Avenidas', '30 de largura'], ['Spawn → Hub', '≈ 6 s a pé'], ['Hub → lotes', '5 a 12 s a pé']];
+	rows.forEach(([k2, v], i) => { const y = y0 + 146 + i * 22; s += T(x0 + 18, y, k2, { size: 14, weight: 600, body: true, halo: false, fill: C.dim }) + T(x0 + w - 18, y, v, { size: 14, weight: 700, anchor: 'end', halo: false }); });
+	s += T(x0 + 18, y0 + 278, 'medidas em studs · andando a 16 studs/s', { size: 12, weight: 500, body: true, halo: false, fill: C.dim });
 	return s;
 }
 function insetSymbols() {
-	const x0 = 1364, y0 = 1504, w = 280, h = 280;
-	let s = frame(x0, y0, w, h, 'SÍMBOLOS');
+	const x0 = MX + 3 * (IW + 14), y0 = IY, w = IW;
+	let s = frame(x0, y0, w, IH, 'SÍMBOLOS');
 	const rows = [
 		[meteorMark(x0 + 30, 0, 0.9), 'queda de meteoro (evento)'],
 		[chestMark(x0 + 30, 0, 1.1), 'baú que cai (evento)'],
@@ -502,10 +422,10 @@ function insetSymbols() {
 		[ln(x0 + 14, -4, x0 + 46, -4, C.ink, 1.2, 'stroke-dasharray="5 4"') + ln(x0 + 14, 4, x0 + 46, 4, C.ink, 1.2, 'stroke-dasharray="5 4"'), 'subterrâneo (túnel, caverna)'],
 		[icon('worm', x0 + 32, 0, 1.3), 'rota do Verme Gigante'],
 		[r(x0 + 16, -8, 28, 16, '#5d6b7a', 'rx="3"'), 'estação do trilho'],
-		[c(x0 + 30, 0, 5, '#fff3b0', 'opacity=".35"') + c(x0 + 30, 0, 2.6, '#ffe27a'), 'poste de luz'],
-		[c(x0 + 26, 0, 7, C.tree) + c(x0 + 36, 3, 5, C.treeLight), 'árvores / decoração'],
+		[[0, 1, 2, 3].map((i) => c(x0 + 18 + i * 8, 0, 2.6, '#ffe27a', `stroke="${C.navy}" stroke-width=".8"`)).join(''), 'luz guia: spawn → lote'],
+		[r(x0 + 16, -5, 28, 10, '#3f8a46', 'rx="5"') + c(x0 + 22, 0, 4, '#4f9c55') + c(x0 + 31, 0, 4, '#4f9c55') + c(x0 + 40, 0, 4, '#4f9c55'), 'cerca viva entre lotes'],
 	];
-	rows.forEach(([sym, t], i) => { const y = y0 + 56 + i * 28; s += `<g transform="translate(0 ${y})">${sym}</g>` + T(x0 + 60, y + 5, t, { size: 14.5, weight: 600, body: true, halo: false }); });
+	rows.forEach(([sym, t], i) => { const y = y0 + 54 + i * 29; s += `<g transform="translate(0 ${y})">${sym}</g>` + T(x0 + 62, y + 5, t, { size: 15, weight: 600, body: true, halo: false }); });
 	return s;
 }
 
@@ -801,14 +721,14 @@ function vWorm() {
 // ------------------------------------------------------------------ right panel
 const CARDS = [
 	[1, 'social', 'LOBBY · CHEGADA', vLobby, ['Todo mundo nasce aqui. Tutorial, prêmio', 'diário, códigos e baú do grupo. Uma luz', 'no chão leva cada jogador até o lote dele.']],
-	[2, 'social', 'HUB CENTRAL', vHub, ['Praça redonda com 8 lojas em volta e a', 'Broca Gigante no meio. O telão da broca', 'conta o tempo até o próximo evento.']],
-	[3, 'lote', 'LOTE DO JOGADOR', vPlot, ['110 × 110 studs, encostado na montanha:', 'placa com o nome, baú, vitrine, pets e a', 'boca do túnel. Fica mais bonito ao evoluir.']],
+	[2, 'social', 'HUB CENTRAL', vHub, ['Praça no meio do mapa: 4 lojas de cada', 'lado e a Broca Gigante no centro. O telão', 'conta o tempo até o próximo evento.']],
+	[3, 'lote', 'LOTE DO JOGADOR', vPlot, ['100 × 100 studs, encostado na montanha:', 'placa com o nome, baú, vitrine, pets e a', 'boca do túnel. Fica mais bonito ao evoluir.']],
 	[4, 'mina', 'TÚNEL (CORTE)', vTunnel, ['Desce montanha adentro, camada por', 'camada. Cada uma tem minérios novos e', 'a profundidade vai pro placar do Hub.']],
 	[5, 'mina', 'CAVERNA COMPARTILHADA', vCavern, ['No Cristal, o túnel fura uma caverna que', 'você divide com o vizinho. Dá pra minerar', 'junto e trocar sem voltar pro Hub.']],
 	[6, 'evento', 'ZONA DE EVENTOS', vEvents, ['Cratera do meteoro, palco e telão. Os', 'eventos do servidor e o show ao vivo de', 'sábado acontecem aqui.']],
 	[7, 'evento', 'ARENA DE MINIGAMES', vArena, ['Corrida de Escavação: 8 raias, quem chegar', 'mais fundo em 60 s ganha. Pisou na fila,', 'a partida começa quando lotar.']],
 	[8, 'mina', 'MINA PÚBLICA', vMine, ['Poço aberto pra todo mundo, com veios', 'raros que reaparecem. Quem chega primeiro', 'leva. O Poço dos Desejos fica na entrada.']],
-	[9, 'transporte', 'TRILHO DOS VAGONETES', vRail, ['Anel elevado em volta do Hub, com 4', 'estações. O vagonete não para: sobe numa', 'estação e desce em qualquer outra.']],
+	[9, 'transporte', 'TRILHO DOS VAGONETES', vRail, ['Volta elevada por cima das avenidas, com 4', 'estações. O vagonete não para: sobe numa', 'estação e desce em qualquer outra.']],
 	[10, 'transporte', 'PORTAIS → OUTROS LOBBIES', vPortals, ['No fundo do Lobby: Trocas, Eventos', 'Globais, VIP e Torneio. Cada portal leva', 'a um servidor separado (outro place).']],
 	[11, 'evento', 'MERCADOR VIAJANTE', vMerchant, ['Aparece no Hub a cada 1 h e fica 10 min.', 'Vende picaretas e ovos que não existem', 'na loja. O chat avisa quando ele chega.']],
 	[12, 'evento', 'VERME GIGANTE', vWorm, ['Chefe que ronda o Anel Profundo. A cada', '1 h atravessa os túneis e sai na Cratera.', 'O servidor inteiro luta junto.']],
@@ -859,9 +779,9 @@ function drawEvents() {
 	return s;
 }
 function drawTitleBlock() {
-	const x0 = PX, y0 = 1666, w = PW, h = 118;
+	const x0 = MX, y0 = 1540, w = WW * K, h = 118;
 	let s = r(x0, y0, w, h, 'rgba(12,38,69,.92)', `stroke="${C.frame}" stroke-width="1.5" rx="4"`);
-	const cells = [['PROJETO', 'Simulador de escavação (nome provisório)', 288], ['FOLHA', '01 · Mapa principal, vista de cima', 270], ['ESCALA', '1 quadrado = 50 studs', 190], ['SERVIDOR', '8 jogadores · 8 lotes', 190], ['DATA', '15/10/2026', 112], ['REV.', 'A', 64]];
+	const cells = [['PROJETO', 'Simulador de escavação (nome provisório)', 400], ['FOLHA', '01 · Mapa principal, vista de cima', 400], ['ESCALA', '1 quadrado = 50 studs', 260], ['SERVIDOR', '8 jogadores · 8 lotes', 250], ['DATA', '15/10/2026', 150], ['REV.', 'B', WW * K - 1460]];
 	let x = x0;
 	cells.forEach(([k, v, cw], i) => {
 		if (i) s += ln(x, y0 + 12, x, y0 + h - 12, C.frame, 1.2);
@@ -879,8 +799,8 @@ function drawHeader() {
 	let s = '';
 	s += T(40, 44, 'SIMULADOR DE ESCAVAÇÃO · ROBLOX', { size: 17, weight: 800, fill: C.cyan, halo: false, ls: 3 });
 	s += T(38, 98, 'BLUEPRINT DO MAPA', { size: 62, weight: 800, halo: false, ls: 1.5 });
-	s += T(560, 74, 'Vista de cima. Cada jogador tem um lote encostado na montanha', { size: 19, weight: 500, body: true, halo: false, fill: C.dim });
-	s += T(560, 99, 'e cava o próprio túnel. Tudo gira em volta do Hub.', { size: 19, weight: 500, body: true, halo: false, fill: C.dim });
+	s += T(560, 74, 'Vista de cima. O Hub fica no meio e os 8 lotes, em duas fileiras,', { size: 19, weight: 500, body: true, halo: false, fill: C.dim });
+	s += T(560, 99, 'encostam na montanha. Cada jogador cava o próprio túnel.', { size: 19, weight: 500, body: true, halo: false, fill: C.dim });
 	const chips = [['social', 'Social: Hub e Lobby'], ['lote', 'Lotes dos jogadores'], ['mina', 'Mineração e túneis'], ['evento', 'Eventos e minigames'], ['transporte', 'Transporte e portais'], ['dash', 'Tracejado = subterrâneo']];
 	chips.forEach(([k, t], i) => {
 		const x = PX + (i % 3) * 372, y = 42 + Math.floor(i / 3) * 40;
@@ -893,11 +813,13 @@ function drawHeader() {
 
 // ------------------------------------------------------------------ assemble
 function buildSVG() {
-	const grid = `<pattern id="gridMinor" x="${CX % 50}" y="${CY % 50}" width="50" height="50" patternUnits="userSpaceOnUse"><path d="M 50 0 L 0 0 0 50" fill="none" stroke="${C.grid}" stroke-opacity=".09" stroke-width="1"/></pattern><pattern id="gridMajor" x="${CX % 250}" y="${CY % 250}" width="250" height="250" patternUnits="userSpaceOnUse"><path d="M 250 0 L 0 0 0 250" fill="none" stroke="${C.grid}" stroke-opacity=".18" stroke-width="1.2"/></pattern>`;
-	const map = drawMap();
-	const labels = drawMapLabels();
-	const insets = insetPlot() + insetLoop() + insetScale() + insetSymbols();
-	const panel = drawPanel() + drawEvents() + drawTitleBlock();
+	const g50 = 50 * K, g250 = 250 * K;
+	const grid = `<pattern id="gridMinor" x="${MX}" y="${MY}" width="${g50}" height="${g50}" patternUnits="userSpaceOnUse"><path d="M ${g50} 0 L 0 0 0 ${g50}" fill="none" stroke="${C.grid}" stroke-opacity=".09" stroke-width="1"/></pattern><pattern id="gridMajor" x="${MX}" y="${MY}" width="${g250}" height="${g250}" patternUnits="userSpaceOnUse"><path d="M ${g250} 0 L 0 0 0 ${g250}" fill="none" stroke="${C.grid}" stroke-opacity=".18" stroke-width="1.2"/></pattern>`;
+	DEFS.push(`<clipPath id="mapClip"><rect x="0" y="0" width="${WW}" height="${WH}" rx="10"/></clipPath>`, '<clipPath id="plazaClip"><rect x="414" y="288" width="240" height="144" rx="14"/></clipPath>', '<clipPath id="lobbyClip"><rect x="440" y="474" width="188" height="142" rx="24"/></clipPath>');
+	const map = `<g transform="translate(${MX} ${MY}) scale(${K})" clip-path="url(#mapClip)">${drawMap()}</g>` + r(MX, MY, WW * K, WH * K, 'none', `stroke="${C.frame}" stroke-width="2" rx="${10 * K}"`);
+	const labels = drawMapLabels() + drawRulers();
+	const insets = insetPlot() + insetLoop() + insetScale() + insetSymbols() + drawTitleBlock();
+	const panel = drawPanel() + drawEvents();
 	const header = drawHeader();
 	return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}"><defs>${grid}${DEFS.join('')}</defs>` +
 		r(0, 0, W, H, C.sheet) + r(0, 0, W, H, 'url(#gridMinor)') + r(0, 0, W, H, 'url(#gridMajor)') +
