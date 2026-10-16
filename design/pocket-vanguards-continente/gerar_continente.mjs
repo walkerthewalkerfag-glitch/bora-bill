@@ -85,21 +85,29 @@ function offsetPoly(pts, d) {
 	const cx = pts.reduce((s, p) => s + p[0], 0) / pts.length, cy = pts.reduce((s, p) => s + p[1], 0) / pts.length;
 	return pts.map(([x, y]) => { const l = Math.hypot(x - cx, y - cy); return [x + ((x - cx) / l) * d, y + ((y - cy) / l) * d]; });
 }
-// continente (sentido horário). O mar do canto NW fica livre para a Estação Astral.
-const LAND = [[236, 72], [330, 48], [430, 62], [520, 44], [640, 58], [760, 40], [880, 56], [980, 88], [1030, 160], [1044, 280], [1030, 420], [1044, 540], [1000, 606], [900, 626], [800, 646], [700, 630], [600, 660], [500, 640], [410, 666], [320, 652], [220, 660], [120, 648], [60, 610], [66, 560], [130, 536], [206, 522], [236, 466], [214, 400], [236, 330], [206, 262], [232, 196], [218, 124]];
+// continente: lobo de deserto a noroeste, faixa norte, braço oeste, península ao sul e uma baía grande a leste com ilhas dentro
+const LAND = [[90, 210], [120, 130], [200, 80], [300, 60], [400, 72], [470, 50], [560, 40], [640, 56], [720, 40], [800, 52], [880, 70], [950, 110], [1000, 180], [1010, 260], [990, 340], [960, 400], [910, 420], [880, 380], [870, 320], [820, 300], [760, 310], [700, 330], [640, 340], [580, 330], [520, 340], [470, 360], [440, 400], [450, 460], [480, 520], [500, 580], [500, 640], [470, 700], [420, 710], [370, 690], [340, 640], [330, 580], [300, 540], [250, 520], [200, 500], [150, 470], [120, 420], [110, 350], [130, 290], [100, 250]];
+function inLand(x, y, pad = 0) {
+	let inside = false;
+	for (let i = 0, j = LAND.length - 1; i < LAND.length; j = i++) { const [xi, yi] = LAND[i], [xj, yj] = LAND[j]; if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside; }
+	if (!inside) return false;
+	if (pad) for (let i = 0, j = LAND.length - 1; i < LAND.length; j = i++) { const [xi, yi] = LAND[i], [xj, yj] = LAND[j], l2 = (xj - xi) ** 2 + (yj - yi) ** 2, t = Math.max(0, Math.min(1, ((x - xi) * (xj - xi) + (y - yi) * (yj - yi)) / l2)); if (Math.hypot(x - (xi + t * (xj - xi)), y - (yi + t * (yj - yi))) < pad) return false; }
+	return true;
+}
 // cidades: x, y (unidades)
 const CITY = {
-	vila: [112, 598], farol: [318, 612], capsule: [548, 586], dunas: [846, 566], glicinias: [764, 204], aurea: [590, 118], portoes: [384, 176], astral: [132, 166], amald: [268, 352], liga: [566, 352],
+	vila: [420, 652], farol: [358, 552], capsule: [222, 400], dunas: [172, 176], glicinias: [562, 176], aurea: [778, 126], portoes: [906, 194], astral: [800, 444], amald: [946, 352], liga: [664, 232],
 };
 // sub-lugares
-const SUB = { lago: [206, 582], floresta: [432, 552], circulo: [668, 512], oasis: [760, 600], penhasco: [938, 420], nevado: [906, 292], vulcao: [838, 128], costa: [690, 92], masmorra: [344, 108], caverna: [446, 352], ilhanavio: [330, 690] };
+const SUB = { lago: [402, 604], floresta: [300, 470], circulo: [200, 320], oasis: [232, 232], penhasco: [320, 112], nevado: [450, 128], vulcao: [616, 92], costa: [690, 68], masmorra: [964, 122], caverna: [790, 268], ilhanavio: [280, 640] };
+const DESERT = [190, 190], DREAM = [700, 596];
 // rotas: número, pontos
 const ROUTES = [
-	[1, [[140, 598], [206, 582]]], [2, [[206, 582], [296, 612]]], [3, [[340, 604], [432, 552]]], [4, [[432, 552], [522, 586]]],
-	[5, [[576, 580], [668, 512]]], [6, [[668, 512], [740, 560], [820, 566]]], [7, [[866, 548], [938, 420]]], [8, [[938, 420], [906, 292]]],
-	[9, [[906, 292], [792, 212]]], [10, [[740, 196], [690, 120], [616, 118]]], [11, [[564, 122], [412, 170]]], [13, [[384, 204], [286, 330]]], [14, [[296, 352], [446, 352], [534, 352]]],
+	[1, [[420, 636], [404, 614]]], [2, [[398, 594], [368, 568]]], [3, [[346, 538], [306, 492]]], [4, [[294, 452], [246, 418]]],
+	[5, [[214, 376], [202, 338]]], [6, [[196, 306], [184, 222]]], [7, [[194, 160], [300, 122]]], [8, [[344, 112], [416, 120]]],
+	[9, [[484, 142], [528, 166]]], [10, [[598, 164], [690, 96], [740, 118]]], [11, [[816, 140], [866, 182]]], [13, [[930, 236], [942, 316]]], [14, [[902, 352], [790, 268], [720, 236]]],
 ];
-const RAIL = [[360, 176], [300, 150], [220, 150], [160, 166]]; // Expresso Astral (R12), sobre o mar
+const RAIL = [[898, 236], [890, 300], [842, 404], [806, 438]]; // Expresso Astral (R12), atravessa a baía
 
 // ------------------------------------------------------------------ small map glyphs
 const badge = (x, y, n, col, s = 1) => c(x, y, 14 * s, col, `stroke="${C.navy}" stroke-width="${3 * s}"`) + T(x, y + 5.4 * s, String(n), { size: 16 * s, weight: 800, fill: C.navy, anchor: 'middle', halo: false });
@@ -120,82 +128,65 @@ function drawMap() {
 	s += r(0, 0, WW, WH, 'url(#seaGrad)');
 	for (let y = 20; y < WH; y += 28) { let d = ''; for (let x = 0; x <= WW; x += 12) d += `${x ? 'L' : 'M'} ${x} ${f(y + 3 * Math.sin(x / 19 + y))} `; s += pth(d, 'none', `stroke="${C.seaLine}" stroke-width=".8" opacity=".35"`); }
 	// ------ ilha: areia em volta e rocha marrom em terraços (estilo mapa de jogo)
+	// ------ ilha: areia em volta e rocha marrom em terraços (estilo mapa de jogo)
 	const land = coast(LAND, 5, 2.2);
 	s += pth(land, '#f0dfae', `stroke="#f0dfae" stroke-width="14" stroke-linejoin="round"`);
-	s += pth(coast(offsetPoly(LAND, -4), 4, 2.2), '#5e4432') + pth(coast(offsetPoly(LAND, -14), 5, 3.3), '#7a5a40') + pth(coast(offsetPoly(LAND, -30), 6, 4.4), '#8f6c4c') + pth(coast(offsetPoly(LAND, -54), 7, 5.5), '#9e7b57');
+	s += pth(coast(offsetPoly(LAND, -4), 4, 2.2), '#5e4432') + pth(coast(offsetPoly(LAND, -12), 5, 3.3), '#7a5a40') + pth(coast(offsetPoly(LAND, -24), 6, 4.4), '#8f6c4c') + pth(coast(offsetPoly(LAND, -40), 7, 5.5), '#9e7b57');
 	const rk = rng(12);
-	for (let i = 0; i < 170; i++) { const x = 240 + rk() * 790, y = 60 + rk() * 600, l = 8 + rk() * 18, a = rk() * Math.PI; s += pth(`M ${f(x)} ${f(y)} q ${f(l * Math.cos(a) * 0.5)} ${f(l * Math.sin(a) * 0.5 - 3)} ${f(l * Math.cos(a))} ${f(l * Math.sin(a))}`, 'none', 'stroke="#5e4432" stroke-width="1.3" opacity=".5" stroke-linecap="round"'); }
-	for (const [d, op] of [[18, 0.35], [34, 0.2]]) s += pth(coast(offsetPoly(LAND, d), 5, 2.2), 'none', `stroke="#9fd0f0" stroke-width="1" opacity="${op}"`);
+	for (let i = 0; i < 420; i++) { const x = 80 + rk() * 940, y = 30 + rk() * 690, l = 8 + rk() * 18, a = rk() * Math.PI; if (!inLand(x, y, 10)) continue; s += pth(`M ${f(x)} ${f(y)} q ${f(l * Math.cos(a) * 0.5)} ${f(l * Math.sin(a) * 0.5 - 3)} ${f(l * Math.cos(a))} ${f(l * Math.sin(a))}`, 'none', 'stroke="#5e4432" stroke-width="1.3" opacity=".5" stroke-linecap="round"'); }
+	for (const [d, op] of [[16, 0.35], [30, 0.2]]) s += pth(coast(offsetPoly(LAND, d), 5, 2.2), 'none', `stroke="#9fd0f0" stroke-width="1" opacity="${op}"`);
 
 	// ------ recortes: cada lugar é um platô com o próprio bioma, com uma borda escura de rocha
 	const plate = (d, fill, rim = '#3f2b1d') => pth(d, rim, `stroke="${rim}" stroke-width="7" stroke-linejoin="round"`) + pth(d, fill);
 	const rectD = (x, y, w, h, rx) => `M ${x + rx} ${y} h ${w - 2 * rx} a ${rx} ${rx} 0 0 1 ${rx} ${rx} v ${h - 2 * rx} a ${rx} ${rx} 0 0 1 ${-rx} ${rx} h ${-(w - 2 * rx)} a ${rx} ${rx} 0 0 1 ${-rx} ${-rx} v ${-(h - 2 * rx)} a ${rx} ${rx} 0 0 1 ${rx} ${-rx} Z`;
 	const flowers = (cx, cy, rad, seed) => { const q = rng(seed); let o = ''; for (let i = 0; i < 18; i++) { const a = q() * 360, d = q() * rad; o += c(cx + d * Math.cos(a * deg), cy + d * Math.sin(a * deg), 1.4, ['#f472b6', '#facc15', '#ffffff'][i % 3]); } return o; };
 	const trees = (cx, cy, rad, n, seed, pine = false) => { const q = rng(seed); let o = ''; for (let i = 0; i < n; i++) { const a = q() * 360, d = rad * (0.45 + q() * 0.55); o += (pine ? pineM : treeM)(cx + d * Math.cos(a * deg), cy + d * Math.sin(a * deg), 0.9); } return o; };
+	const P2 = (k) => CITY[k] || SUB[k];
 
-	// Vila Verdejante, Lago Espelhado
-	s += plate(blob(112, 598, 62, 5, 1.1), C.grass) + flowers(112, 598, 50, 2) + trees(112, 598, 60, 10, 3);
-	s += plate(blob(206, 582, 32, 3, 1.9), '#8fcf6f') + pth(blob(206, 582, 20, 2.5, 8.1), C.water, 'stroke="#3d93b8" stroke-width="1.6"') + el(200, 576, 6, 2.4, '#bfe9f7', 'opacity=".6"') + treeM(184, 566, 0.8) + treeM(228, 598, 0.8);
-	// Cidade Farol: metade grama, metade praia
-	s += plate(blob(318, 606, 58, 5, 2.7), '#9bc77e') + pth(blob(318, 626, 44, 4, 2.8), '#f0dfae') + trees(318, 590, 50, 6, 4);
+	// Vila Verdejante (ponta da península), Lago Espelhado
+	s += plate(blob(...P2('vila'), 54, 5, 1.1), C.grass) + flowers(...P2('vila'), 44, 2) + trees(...P2('vila'), 52, 9, 3);
+	s += plate(blob(...P2('lago'), 30, 3, 1.9), '#8fcf6f') + pth(blob(...P2('lago'), 18, 2.5, 8.1), C.water, 'stroke="#3d93b8" stroke-width="1.6"') + el(P2('lago')[0] - 6, P2('lago')[1] - 6, 5, 2.2, '#bfe9f7', 'opacity=".6"') + treeM(P2('lago')[0] - 22, P2('lago')[1] + 14, 0.8) + treeM(P2('lago')[0] + 20, P2('lago')[1] - 16, 0.8);
+	// Cidade Farol: grama atrás, praia na frente (costa oeste da península)
+	s += plate(blob(...P2('farol'), 54, 5, 2.7), '#9bc77e') + pth(blob(P2('farol')[0] - 16, P2('farol')[1] + 6, 40, 4, 2.8), '#f0dfae') + trees(P2('farol')[0] + 18, P2('farol')[1] - 16, 36, 5, 4);
 	// Floresta das Lanternas
-	s += plate(blob(432, 552, 50, 5, 6.6), '#2f4a3a') + pth(blob(432, 552, 34, 4, 7.1), '#263d30');
-	const rr1 = rng(4);
-	for (let i = 0; i < 26; i++) { const a = rr1() * 360, d = rr1() * 42; s += c(432 + d * Math.cos(a * deg), 552 + d * Math.sin(a * deg), 2.6 + rr1() * 2.8, i % 3 ? '#35634a' : '#2a5340'); }
-	for (const [dx, dy] of [[-20, -14], [14, -20], [22, 12], [-24, 16], [0, 26]]) s += lanternM(432 + dx, 552 + dy);
+	{ const [x, y] = P2('floresta'); s += plate(blob(x, y, 48, 5, 6.6), '#2f4a3a') + pth(blob(x, y, 32, 4, 7.1), '#263d30'); const q = rng(4); for (let i = 0; i < 26; i++) { const a = q() * 360, d = q() * 40; s += c(x + d * Math.cos(a * deg), y + d * Math.sin(a * deg), 2.6 + q() * 2.8, i % 3 ? '#35634a' : '#2a5340'); } for (const [dx, dy] of [[-20, -14], [14, -20], [22, 12], [-24, 16], [0, 26]]) s += lanternM(x + dx, y + dy); }
 	// Capsule City: platô de concreto
-	s += plate(rectD(486, 540, 124, 88, 12), '#dfe4ea');
-	for (let gx = 500; gx < 610; gx += 20) s += ln(gx, 540, gx, 628, '#c8cfd8', 1);
+	{ const [x, y] = P2('capsule'); s += plate(rectD(x - 62, y - 44, 124, 88, 12), '#dfe4ea'); for (let gx = x - 48; gx < x + 62; gx += 20) s += ln(gx, y - 44, gx, y + 44, '#c8cfd8', 1); }
 	// Círculo de Pedra
-	s += plate(blob(668, 512, 32, 3, 3.1), '#8fcf6f');
-	for (let i = 0; i < 8; i++) { const a = i * 45; s += r(668 + 13 * Math.cos(a * deg) - 1.8, 512 + 9 * Math.sin(a * deg) - 2.6, 3.6, 5.2, '#8a8f98', `stroke="${C.rockEdge}" stroke-width=".6"`); }
-	// Deserto de Vidro (com a Cidade das Dunas e o Oásis dentro)
-	s += plate(blob(810, 575, 124, 10, 5.1), '#ead9a0') + pth(blob(720, 560, 36, 5, 5.4), '#e3cf90');
-	for (let i = 0; i < 16; i++) { const x = 712 + (i % 8) * 36, y = 520 + Math.floor(i / 8) * 64 + (i % 2) * 18; if (Math.hypot(x - 810, y - 575) > 100) continue; s += pth(`M ${x - 14} ${y} q 14 -8 28 0`, 'none', 'stroke="#d8c184" stroke-width="1.8"'); }
-	s += pth(blob(760, 600, 12, 1.5, 6.6), C.water, 'stroke="#3d93b8" stroke-width="1.2"') + treeM(748, 592, 0.7, '#4f9c55') + treeM(772, 592, 0.7, '#4f9c55');
-	for (const [x, y] of [[710, 586], [790, 530], [870, 640], [900, 536], [736, 630], [890, 612]]) s += r(x - 1.5, y - 8, 3, 10, '#4f9c55') + r(x - 5, y - 5, 3, 4, '#4f9c55') + r(x + 2, y - 7, 3, 4, '#4f9c55');
+	{ const [x, y] = P2('circulo'); s += plate(blob(x, y, 30, 3, 3.1), '#8fcf6f'); for (let i = 0; i < 8; i++) { const a = i * 45; s += r(x + 13 * Math.cos(a * deg) - 1.8, y + 9 * Math.sin(a * deg) - 2.6, 3.6, 5.2, '#8a8f98', `stroke="${C.rockEdge}" stroke-width=".6"`); } }
+	// Deserto de Vidro (lobo noroeste) com a Cidade das Dunas e o Oásis dentro
+	{ const [x, y] = DESERT; s += plate(blob(x, y, 108, 9, 5.1), '#ead9a0'); for (let i = 0; i < 18; i++) { const px = x - 90 + (i % 6) * 36, py = y - 70 + Math.floor(i / 6) * 56 + (i % 2) * 16; if (Math.hypot(px - x, py - y) > 86) continue; s += pth(`M ${px - 14} ${py} q 14 -8 28 0`, 'none', 'stroke="#d8c184" stroke-width="1.8"'); } const [ox, oy] = P2('oasis'); s += pth(blob(ox, oy, 12, 1.5, 6.6), C.water, 'stroke="#3d93b8" stroke-width="1.2"') + treeM(ox - 12, oy - 8, 0.7, '#4f9c55') + treeM(ox + 12, oy - 8, 0.7, '#4f9c55'); for (const [dx, dy] of [[-70, 40], [-50, -60], [60, 50], [70, -30], [-10, 80], [20, -80]]) s += r(x + dx - 1.5, y + dy - 8, 3, 10, '#4f9c55') + r(x + dx - 5, y + dy - 5, 3, 4, '#4f9c55') + r(x + dx + 2, y + dy - 7, 3, 4, '#4f9c55'); }
 	// Penhasco dos Cata-ventos
-	s += plate(blob(938, 420, 40, 4, 9.9), C.rock) + pth(blob(938, 424, 24, 3, 10.2), '#9bc77e');
-	for (let a = 0; a < 360; a += 10) s += ln(938 + 32 * Math.cos(a * deg), 420 + 32 * Math.sin(a * deg), 938 + 40 * Math.cos(a * deg), 420 + 40 * Math.sin(a * deg), C.rockEdge, 1);
-	for (const [dx, dy] of [[-14, -14], [4, -20], [18, -8]]) s += windmillM(938 + dx, 420 + dy, 0.8);
+	{ const [x, y] = P2('penhasco'); s += plate(blob(x, y, 38, 4, 9.9), C.rock) + pth(blob(x, y + 4, 22, 3, 10.2), '#9bc77e'); for (let a = 0; a < 360; a += 10) s += ln(x + 30 * Math.cos(a * deg), y + 30 * Math.sin(a * deg), x + 38 * Math.cos(a * deg), y + 38 * Math.sin(a * deg), C.rockEdge, 1); for (const [dx, dy] of [[-14, -14], [4, -20], [18, -8]]) s += windmillM(x + dx, y + dy, 0.8); }
 	// Monte Nevado
-	s += plate(blob(906, 292, 80, 7, 7.7), '#eef3f6');
-	const rr0 = rng(5);
-	for (let i = 0; i < 16; i++) { const a = rr0() * 360, d = rr0() * 62, x = 906 + d * Math.cos(a * deg), y = 292 + d * Math.sin(a * deg), h = 8 + rr0() * 12; if (Math.hypot(x - 906, y - 292) < 16) continue; s += poly([[x - h * 0.8, y + h * 0.3], [x, y - h], [x + h * 0.8, y + h * 0.3]], '#b7c3cc', `stroke="${C.rockEdge}" stroke-width=".7"`) + poly([[x - h * 0.4, y - h * 0.35], [x, y - h], [x + h * 0.4, y - h * 0.35]], '#ffffff'); }
-	for (const [x, y] of [[870, 340], [950, 330], [860, 250], [950, 260]]) s += pineM(x, y, 1, '#4b7a5c');
+	{ const [x, y] = P2('nevado'); s += plate(blob(x, y, 62, 6, 7.7), '#eef3f6'); const q = rng(5); for (let i = 0; i < 14; i++) { const a = q() * 360, d = q() * 46, px = x + d * Math.cos(a * deg), py = y + d * Math.sin(a * deg), h = 8 + q() * 11; if (Math.hypot(px - x, py - y) < 14) continue; s += poly([[px - h * 0.8, py + h * 0.3], [px, py - h], [px + h * 0.8, py + h * 0.3]], '#b7c3cc', `stroke="${C.rockEdge}" stroke-width=".7"`) + poly([[px - h * 0.4, py - h * 0.35], [px, py - h], [px + h * 0.4, py - h * 0.35]], '#ffffff'); } for (const [dx, dy] of [[-40, 36], [40, 34], [-42, -30], [44, -28]]) s += pineM(x + dx, y + dy, 1, '#4b7a5c'); }
 	// Vila das Glicínias e Vulcão Adormecido
-	s += plate(blob(764, 204, 60, 5, 4.2), '#9bc77e') + trees(764, 204, 56, 6, 7, true);
-	s += plate(blob(838, 128, 58, 5, 2.5), '#5e5044');
-	for (let i = 0; i < 4; i++) s += pth(blob(SUB.vulcao[0], SUB.vulcao[1], 50 - i * 11, 4, 2.5 + i), ['#8a7b6b', '#7c6c5c', '#6e5f50', '#5e5044'][i], `stroke="${C.rockEdge}" stroke-width=".8"`);
-	s += c(SUB.vulcao[0], SUB.vulcao[1], 10, '#3b1f14') + c(SUB.vulcao[0], SUB.vulcao[1], 6, '#ff6a2b') + c(SUB.vulcao[0] + 6, SUB.vulcao[1] - 20, 8, 'rgba(255,255,255,.45)') + c(SUB.vulcao[0] + 14, SUB.vulcao[1] - 30, 6, 'rgba(255,255,255,.35)');
+	s += plate(blob(...P2('glicinias'), 58, 5, 4.2), '#9bc77e') + trees(...P2('glicinias'), 54, 6, 7, true);
+	{ const [x, y] = P2('vulcao'); s += plate(blob(x, y, 50, 5, 2.5), '#5e5044'); for (let i = 0; i < 4; i++) s += pth(blob(x, y, 44 - i * 10, 4, 2.5 + i), ['#8a7b6b', '#7c6c5c', '#6e5f50', '#5e5044'][i], `stroke="${C.rockEdge}" stroke-width=".8"`); s += c(x, y, 10, '#3b1f14') + c(x, y, 6, '#ff6a2b') + c(x + 6, y - 20, 8, 'rgba(255,255,255,.45)') + c(x + 14, y - 30, 6, 'rgba(255,255,255,.35)'); }
 	// Costa de Pedra e Cidade Áurea
-	s += plate(rectD(632, 66, 116, 38, 10), '#a7978a');
-	for (let x = 640; x < 744; x += 6) s += ln(x, 72 + 2 * Math.sin(x / 9), x + 3, 96 + 2 * Math.sin(x / 9), C.rockEdge, 1.2, 'opacity=".7"');
-	s += plate(blob(590, 118, 60, 5, 8.8), '#e9ddc5') + pth(blob(590, 134, 40, 4, 8.9), '#9bc77e', 'opacity=".7"');
+	{ const [x, y] = P2('costa'); s += plate(rectD(x - 54, y - 18, 108, 36, 10), '#a7978a'); for (let px = x - 48; px < x + 50; px += 6) s += ln(px, y - 12 + 2 * Math.sin(px / 9), px + 3, y + 12 + 2 * Math.sin(px / 9), C.rockEdge, 1.2, 'opacity=".7"'); }
+	s += plate(blob(...P2('aurea'), 58, 5, 8.8), '#e9ddc5') + pth(blob(P2('aurea')[0], P2('aurea')[1] + 16, 38, 4, 8.9), '#9bc77e', 'opacity=".7"');
 	// Cidade dos Portões e Masmorra Dupla
-	s += plate(rectD(328, 134, 112, 84, 10), '#cfd6de');
-	s += plate(blob(344, 108, 20, 2, 3.3), '#101522');
+	{ const [x, y] = P2('portoes'); s += plate(rectD(x - 56, y - 42, 112, 84, 10), '#cfd6de'); }
+	s += plate(blob(...P2('masmorra'), 20, 2, 3.3), '#101522');
 	// Cidade Amaldiçoada, Caminho da Vitória, Liga
-	s += plate(rectD(216, 312, 104, 80, 10), '#4a3f66');
-	s += plate(blob(446, 352, 26, 3, 1.5), '#6e5f50');
-	s += plate(blob(566, 352, 58, 5, 2.2), '#9bc77e') + trees(566, 352, 52, 8, 9);
+	{ const [x, y] = P2('amald'); s += plate(rectD(x - 46, y - 36, 92, 72, 10), '#4a3f66'); }
+	s += plate(blob(...P2('caverna'), 26, 3, 1.5), '#6e5f50');
+	s += plate(blob(...P2('liga'), 56, 5, 2.2), '#9bc77e') + trees(...P2('liga'), 50, 8, 9);
 	// Serra do Meio em volta da Liga
-	const rr2 = rng(3), peaks = [];
-	for (let i = 0; i < 90; i++) { const a = rr2() * 360, d = 66 + rr2() * 56, x = 566 + d * Math.cos(a * deg) * 1.5, y = 352 + d * Math.sin(a * deg) * 0.8; if (Math.abs(y - 352) < 10 && x < 566) continue; peaks.push([x, y, 8 + rr2() * 11]); }
-	peaks.sort((p, q) => p[1] - q[1]);
-	for (const [x, y, h] of peaks) s += poly([[x - h * 0.9, y + h * 0.35], [x, y - h], [x + h * 0.9, y + h * 0.35]], C.rock, `stroke="${C.rockEdge}" stroke-width=".8"`) + poly([[x - h * 0.3, y - h * 0.4], [x, y - h], [x + h * 0.3, y - h * 0.4]], C.snow);
-	// Ilha do Navio (naufrágio)
-	s += pth(blob(330, 690, 18, 2, 11.3), '#f0dfae') + pth(blob(330, 690, 11, 1.5, 11.3), C.grass) + shipM(338, 684, 0.8, '#d9d0b2') + treeM(324, 686, 0.7);
-	// Ilha Crescente: o Mundo dos Sonhos, no mar do sudeste
+	{ const [lx, ly] = P2('liga'), q = rng(3), peaks = []; for (let i = 0; i < 110; i++) { const a = q() * 360, d = 64 + q() * 50, x = lx + d * Math.cos(a * deg) * 1.35, y = ly + d * Math.sin(a * deg) * 0.75; if (!inLand(x, y, 12) || Math.hypot(x - P2('aurea')[0], y - P2('aurea')[1]) < 72 || Math.hypot(x - P2('glicinias')[0], y - P2('glicinias')[1]) < 70 || Math.hypot(x - P2('caverna')[0], y - P2('caverna')[1]) < 32) continue; peaks.push([x, y, 8 + q() * 11]); } peaks.sort((p, w) => p[1] - w[1]); for (const [x, y, h] of peaks) s += poly([[x - h * 0.9, y + h * 0.35], [x, y - h], [x + h * 0.9, y + h * 0.35]], C.rock, `stroke="${C.rockEdge}" stroke-width=".8"`) + poly([[x - h * 0.3, y - h * 0.4], [x, y - h], [x + h * 0.3, y - h * 0.4]], C.snow); }
+	// Ilha do Navio (naufrágio), a oeste da península
+	{ const [x, y] = P2('ilhanavio'); s += pth(blob(x, y, 18, 2, 11.3), '#f0dfae') + pth(blob(x, y, 11, 1.5, 11.3), C.grass) + shipM(x + 8, y - 6, 0.8, '#d9d0b2') + treeM(x - 6, y - 4, 0.7); }
+	// Ilha Crescente: o Mundo dos Sonhos, dentro da baía
 	{
-		const cx2 = 1002, cy2 = 674;
-		s += c(cx2, cy2, 44, 'url(#gPink)', 'opacity=".45"');
-		s += pth(`M ${cx2} ${cy2 - 34} A 34 34 0 1 0 ${cx2} ${cy2 + 34} A 24 24 0 1 1 ${cx2} ${cy2 - 34} Z`, '#f0dfae', 'stroke="#f0dfae" stroke-width="5" stroke-linejoin="round"');
-		s += pth(`M ${cx2} ${cy2 - 31} A 31 31 0 1 0 ${cx2} ${cy2 + 31} A 23 23 0 1 1 ${cx2} ${cy2 - 31} Z`, '#8ed9a8');
-		s += pth(`M ${cx2 - 3} ${cy2 - 24} A 24 24 0 1 0 ${cx2 - 3} ${cy2 + 24} A 18 18 0 1 1 ${cx2 - 3} ${cy2 - 24} Z`, '#6b4a8a', 'opacity=".55"');
-		for (const [dx, dy] of [[-25, -8], [-18, 14], [-27, 4]]) s += c(cx2 + dx, cy2 + dy, 2.6, '#ff7ad9', 'opacity=".8"') + sparkle(cx2 + dx, cy2 + dy, 0.5, '#fff');
-		s += el(cx2 - 20, cy2 - 20, 6, 3.5, '#8fb8ff') + c(cx2 - 23, cy2 - 23, 2.2, '#8fb8ff') + T(cx2 - 12, cy2 - 24, 'z', { size: 5.5, weight: 800, fill: '#fff', halo: false });
-		s += treeM(cx2 - 22, cy2 + 22, 0.6, '#5fd3b8', '#a7f3d0');
+		const [cx2, cy2] = DREAM;
+		s += c(cx2, cy2, 46, 'url(#gPink)', 'opacity=".45"');
+		s += pth(`M ${cx2} ${cy2 - 36} A 36 36 0 1 0 ${cx2} ${cy2 + 36} A 25 25 0 1 1 ${cx2} ${cy2 - 36} Z`, '#f0dfae', 'stroke="#f0dfae" stroke-width="5" stroke-linejoin="round"');
+		s += pth(`M ${cx2} ${cy2 - 33} A 33 33 0 1 0 ${cx2} ${cy2 + 33} A 24 24 0 1 1 ${cx2} ${cy2 - 33} Z`, '#8ed9a8');
+		s += pth(`M ${cx2 - 3} ${cy2 - 26} A 26 26 0 1 0 ${cx2 - 3} ${cy2 + 26} A 19 19 0 1 1 ${cx2 - 3} ${cy2 - 26} Z`, '#6b4a8a', 'opacity=".55"');
+		for (const [dx, dy] of [[-27, -8], [-19, 15], [-29, 4]]) s += c(cx2 + dx, cy2 + dy, 2.6, '#ff7ad9', 'opacity=".8"') + sparkle(cx2 + dx, cy2 + dy, 0.5, '#fff');
+		s += el(cx2 - 21, cy2 - 21, 6, 3.5, '#8fb8ff') + c(cx2 - 24, cy2 - 24, 2.2, '#8fb8ff') + T(cx2 - 13, cy2 - 25, 'z', { size: 5.5, weight: 800, fill: '#fff', halo: false });
+		s += treeM(cx2 - 23, cy2 + 23, 0.6, '#5fd3b8', '#a7f3d0');
 	}
 
 	// ------ rotas (tan) com mato alto, e os números
@@ -207,22 +198,21 @@ function drawMap() {
 	const railD = 'M ' + RAIL.map((p) => `${p[0]} ${p[1]}`).join(' L ');
 	for (let i = 0; i < RAIL.length - 1; i++) { const [x0, y0] = RAIL[i], [x1, y1] = RAIL[i + 1], len = Math.hypot(x1 - x0, y1 - y0); for (let t = 10; t < len; t += 18) s += r(x0 + ((x1 - x0) * t) / len - 1.5, y0 + ((y1 - y0) * t) / len, 3, 8, '#4a3a2c'); }
 	s += pth(railD, 'none', `stroke="${C.deck}" stroke-width="6"`) + pth(railD, 'none', `stroke="${C.tie}" stroke-width="6" stroke-dasharray="1.6 3.4"`) + pth(railD, 'none', `stroke="${C.rail}" stroke-width="1"`);
-	s += `<g transform="translate(262 150)">${r(-9, -4.5, 18, 9, '#2a1b55', `rx="2" stroke="${C.gold}" stroke-width="1"`)}${r(-6, -2.5, 4, 3, '#fde68a')}${r(0, -2.5, 4, 3, '#fde68a')}${c(-12, 0, 1.6, '#fff')}</g>`;
+	s += `<g transform="translate(866 352) rotate(-65)">${r(-9, -4.5, 18, 9, '#2a1b55', `rx="2" stroke="${C.gold}" stroke-width="1"`)}${r(-6, -2.5, 4, 3, '#fde68a')}${r(0, -2.5, 4, 3, '#fde68a')}${c(-12, 0, 1.6, '#fff')}</g>`;
 	// balsa opcional Farol → Ilha do Navio
-	s += pth('M 318 632 Q 322 660 330 676', 'none', 'stroke="#eaf6ff" stroke-width="1.4" stroke-dasharray="4 3"');
+	s += pth('M 332 566 Q 300 600 292 626', 'none', 'stroke="#eaf6ff" stroke-width="1.4" stroke-dasharray="4 3"');
 
 	// ------ cidades
 	const [vx, vy] = CITY.vila;
 	for (const [dx, dy, roof] of [[-12, -6, '#d9412f'], [4, -12, '#2d9bf0'], [16, -2, '#d9412f'], [-4, 8, '#f2c230'], [10, 12, '#2d9bf0']]) s += houseM(vx + dx, vy + dy, 11, 9, roof);
 	s += r(vx - 28, vy + 4, 18, 13, '#f8fafc', 'rx="1.5" stroke="#94a3b8" stroke-width="1"') + r(vx - 26, vy + 6, 14, 4, '#60a5fa') + c(vx - 14, vy - 2, 1.4, '#ef4444');
-	for (let i = 0; i < 10; i++) s += c(vx - 30 + i * 7, vy - 28 + (i % 2) * 5, 2.8, '#4f9c55');
 
 	const [fx, fy] = CITY.farol;
-	s += pth(`M ${fx - 34} ${fy + 14} Q ${fx} ${fy + 44} ${fx + 34} ${fy + 14} Z`, C.sea) + r(fx - 30, fy + 12, 60, 4, '#a9865e') + r(fx - 8, fy + 14, 3.5, 18, '#a9865e') + r(fx + 12, fy + 14, 3.5, 14, '#a9865e');
+	s += `<g transform="rotate(90 ${fx} ${fy})">` + pth(`M ${fx - 34} ${fy + 14} Q ${fx} ${fy + 44} ${fx + 34} ${fy + 14} Z`, C.sea) + r(fx - 30, fy + 12, 60, 4, '#a9865e') + r(fx - 8, fy + 14, 3.5, 18, '#a9865e') + r(fx + 12, fy + 14, 3.5, 14, '#a9865e');
 	s += shipM(fx + 2, fy + 32, 0.9) + shipM(fx + 26, fy + 28, 0.75, '#ef4444');
 	for (const [dx, dy, roof] of [[-34, -6, '#2d9bf0'], [-20, -14, '#d9412f'], [-6, -4, '#f2c230'], [10, -14, '#2d9bf0'], [24, -4, '#d9412f']]) s += houseM(fx + dx, fy + dy, 11, 8, roof);
 	s += r(fx + 40, fy - 6, 4, 18, '#f3f4f6') + r(fx + 40, fy - 2, 4, 4, '#ef4444') + r(fx + 40, fy + 6, 4, 4, '#ef4444') + c(fx + 42, fy - 8, 2.6, '#fde68a') + c(fx + 42, fy - 8, 8, '#fde68a', 'opacity=".25"');
-	s += gymM(fx - 40, fy + 10, TYPE.agua);
+	s += '</g>' + gymM(fx + 2, fy - 44, TYPE.agua);
 
 	const [cx, cy] = CITY.capsule;
 	s += r(cx - 56, cy - 36, 112, 72, '#dfe4ea', 'rx="8" stroke="#8c97a6" stroke-width="1.5"');
@@ -303,25 +293,26 @@ function regLabel(key, px, py, anchor = 'start') {
 }
 function drawMapLabels() {
 	let s = '';
-	s += regLabel('vila', X(70), Y(548));
-	s += regLabel('farol', X(360), Y(650));
-	s += regLabel('capsule', X(486), Y(648));
-	s += regLabel('dunas', X(790), Y(630));
-	s += regLabel('glicinias', X(700), Y(256));
-	s += regLabel('aurea', X(538), Y(62));
-	s += regLabel('portoes', X(330), Y(238));
-	s += regLabel('astral', X(70), Y(222));
-	s += regLabel('amald', X(214), Y(412));
-	s += regLabel('liga', X(520), Y(410));
+	s += regLabel('vila', X(488), Y(650));
+	s += regLabel('farol', X(290), Y(546), 'end');
+	s += regLabel('capsule', X(150), Y(400), 'end');
+	s += regLabel('dunas', X(100), Y(258));
+	s += regLabel('glicinias', X(500), Y(254));
+	s += regLabel('aurea', X(730), Y(44));
+	s += regLabel('portoes', X(846), Y(214), 'end');
+	s += regLabel('astral', X(744), Y(500));
+	s += regLabel('amald', X(872), Y(410));
+	s += regLabel('liga', X(608), Y(312));
 	const small = (x, y, t, o = {}) => (s += T(X(x), Y(y), t, { size: 10.5, weight: 700, anchor: 'middle', ...o }));
-	small(206, 614, 'Lago Espelhado'); small(432, 592, 'Floresta das Lanternas'); small(668, 538, 'Círculo de Pedra'); small(760, 620, 'Oásis'); small(800, 500, 'DESERTO DE VIDRO', { size: 11, fill: '#5a3d1e', halo: false, ls: 1.5 });
-	small(938, 452, 'Penhasco dos Cata-ventos'); small(906, 330, 'MONTE NEVADO', { size: 11, fill: '#334155', halo: false, ls: 1.5 }); small(838, 170, 'Vulcão Adormecido'); small(690, 66, 'Costa de Pedra'); small(344, 92, 'Masmorra Dupla'); small(446, 374, 'Caminho da Vitória (caverna)');
-	small(330, 708, 'Ilha do Navio'); small(262, 136, 'Expresso Astral (R12)'); small(566, 304, 'SERRA DO MEIO', { size: 11, fill: '#efe6da', ls: 2 });
-	small(990, 622, 'MUNDO DOS SONHOS', { size: 11, fill: '#ffd0f0', ls: 1 }); small(990, 634, 'Ilha Crescente · entra dormindo', { size: 9, fill: '#ffd0f0' });
-	small(846, 540, 'vila de areia', { size: 9.5 }); small(268, 318, 'escola · cruzamento · cúpula', { size: 9.5 }); small(384, 150, 'portões azuis', { size: 9.5 }); small(132, 196, 'ilha flutuante', { size: 9.5 }); small(590, 150, 'praça da seta', { size: 9.5 });
+	small(446, 612, 'Lago Espelhado', { anchor: 'start' }); small(300, 510, 'Floresta das Lanternas'); small(244, 324, 'Círculo de Pedra', { anchor: 'start' }); small(232, 252, 'Oásis'); small(190, 108, 'DESERTO DE VIDRO', { size: 11, fill: '#5a3d1e', halo: false, ls: 1.5 });
+	small(320, 150, 'Penhasco dos Cata-ventos'); small(450, 200, 'MONTE NEVADO', { size: 11, fill: '#334155', halo: false, ls: 1.5 }); small(616, 150, 'Vulcão Adormecido'); small(690, 40, 'Costa de Pedra'); small(964, 100, 'Masmorra Dupla'); small(790, 294, 'Caminho da Vitória (caverna)');
+	small(280, 666, 'Ilha do Navio'); small(828, 348, 'Expresso Astral (R12)', { anchor: 'end' }); small(664, 166, 'SERRA DO MEIO', { size: 11, fill: '#efe6da', ls: 2 });
+	small(700, 646, 'MUNDO DOS SONHOS', { size: 11, fill: '#ffd0f0', ls: 1 }); small(700, 658, 'Ilha Crescente · entra dormindo', { size: 9, fill: '#ffd0f0' });
+	small(172, 208, 'vila de areia', { size: 9.5 }); 
+	small(946, 318, 'escola · cruzamento · cúpula', { size: 9.5 }); small(906, 148, 'portões azuis', { size: 9.5 }); small(800, 478, 'ilha flutuante', { size: 9.5 }); small(778, 160, 'praça da seta', { size: 9.5 });
 	// números das rotas
 	for (const [n, pts] of ROUTES) { const a = pts[0], b = pts[pts.length - 1], mid = pts.length === 3 ? pts[1] : [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2]; s += c(X(mid[0]), Y(mid[1]), 11, '#fff7d6', `stroke="${C.navy}" stroke-width="1.6"`) + T(X(mid[0]), Y(mid[1]) + 4, 'R' + n, { size: 10, weight: 800, anchor: 'middle', fill: C.navy, halo: false }); }
-	s += c(X(220), Y(150), 11, '#fff7d6', `stroke="${C.navy}" stroke-width="1.6"`) + T(X(220), Y(150) + 4, 'R12', { size: 10, weight: 800, anchor: 'middle', fill: C.navy, halo: false });
+	s += c(X(866), Y(352), 11, '#fff7d6', `stroke="${C.navy}" stroke-width="1.6"`) + T(X(866), Y(352) + 4, 'R12', { size: 10, weight: 800, anchor: 'middle', fill: C.navy, halo: false });
 	// régua
 	for (let x = 0; x <= WW; x += 50) { s += ln(X(x), MY - (x % 100 ? 5 : 9), X(x), MY - 1, C.dim, 1.2); if (x % 100 === 0) s += T(X(x), MY - 13, String(x / 100) + ' km', { size: 11, weight: 700, anchor: 'middle', fill: C.dim, halo: false }); }
 	for (let y = 0; y <= WH; y += 50) { s += ln(MX - (y % 100 ? 5 : 9), Y(y), MX - 1, Y(y), C.dim, 1.2); if (y % 100 === 0) s += T(MX - 12, Y(y) + 4, String(y / 100), { size: 11, weight: 700, anchor: 'end', fill: C.dim, halo: false }); }

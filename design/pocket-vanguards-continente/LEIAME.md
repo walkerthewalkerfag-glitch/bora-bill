@@ -2,7 +2,7 @@
 
 ![Mapa da região](continente-pocket-vanguards.png)
 
-Região do Pocket Vanguards vista de cima, no estilo Pokémon Brick Bronze: você sai da Vila Verdejante e segue R1, R2, R3… Cada cidade é o mundo de uma série e guarda um ginásio. Entre uma cidade e outra tem um sub-lugar com Ecos próprios (lago, floresta, círculo de pedra, deserto, penhasco, montanha de neve, costa de pedra, masmorra, caverna, ilha) e um bioma diferente. O enquadramento é o mesmo do blueprint do simulador: mapa à esquerda, um desenho por lugar à direita, tabela "qual é qual", linha da aventura e símbolos embaixo.
+Região do Pocket Vanguards vista de cima, no estilo de mapa de jogo do Pokémon Brick Bronze (ilha de rocha com formato irregular: lobo de deserto a noroeste, faixa norte, braço oeste, península ao sul e uma baía grande a leste com ilhas dentro; cada lugar é um platô recortado com o próprio bioma): você sai da Vila Verdejante e segue R1, R2, R3… Cada cidade é o mundo de uma série e guarda um ginásio. Entre uma cidade e outra tem um sub-lugar com Ecos próprios (lago, floresta, círculo de pedra, deserto, penhasco, montanha de neve, costa de pedra, masmorra, caverna, ilha) e um bioma diferente. O enquadramento é o mesmo do blueprint do simulador: mapa à esquerda, um desenho por lugar à direita, tabela "qual é qual", linha da aventura e símbolos embaixo.
 
 Todos os nomes de cidade são provisórios. JoJo, Star Rail, Dragon Ball (Capsule City = cidade 3) e Naruto foram citados por você; Jujutsu Kaisen e Solo Leveling já estão no jogo; Demon Slayer e One Piece são sugestão para fechar os 8 ginásios.
 
