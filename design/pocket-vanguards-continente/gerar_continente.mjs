@@ -99,7 +99,7 @@ const CITY = {
 	vila: [420, 652], farol: [358, 552], capsule: [222, 400], dunas: [172, 176], glicinias: [562, 176], aurea: [778, 126], portoes: [906, 194], astral: [800, 444], amald: [946, 352], liga: [664, 232],
 };
 // sub-lugares
-const SUB = { lago: [402, 604], floresta: [300, 470], circulo: [200, 320], oasis: [232, 232], penhasco: [320, 112], nevado: [450, 128], vulcao: [616, 92], costa: [690, 68], masmorra: [964, 122], caverna: [790, 268], ilhanavio: [280, 640] };
+const SUB = { lago: [402, 604], floresta: [300, 470], circulo: [200, 320], oasis: [232, 232], vale: [330, 110], kamado: [488, 98], natagumo: [520, 150], coliseu: [728, 168], costa: [690, 68], masmorra: [964, 122], caverna: [790, 268], ilhanavio: [280, 640], kame: [62, 430], jeju: [1036, 70], escola: [898, 316] };
 const DESERT = [190, 190], DREAM = [700, 596];
 // rotas: número, pontos
 const ROUTES = [
@@ -123,61 +123,290 @@ const toriiM = (x, y, s = 1, col = '#d9412f') => r(x - 5 * s, y - 8 * s, 10 * s,
 const shipM = (x, y, s = 1, sail = '#f6f1e6') => `<g transform="rotate(-12 ${f(x)} ${f(y)})">${pth(`M ${f(x - 10 * s)} ${f(y)} L ${f(x + 10 * s)} ${f(y)} L ${f(x + 7 * s)} ${f(y + 5 * s)} L ${f(x - 7 * s)} ${f(y + 5 * s)} Z`, '#7a4a28')}${r(x - 0.8 * s, y - 12 * s, 1.6 * s, 12 * s, '#4b2e18')}${poly([[x, y - 12 * s], [x + 8 * s, y - 6 * s], [x, y - 1 * s]], sail)}</g>`;
 
 // ------------------------------------------------------------------ MAP (unidades, dentro de um grupo escalado por K)
+// ------------------------------------------------------------------ regiões: Voronoi ponderado recortado pela ilha
+const REGIONS = [
+	// id, semente, peso, chão
+	['vila', [432, 662], 900, '#8fd06f'],
+	['farol', [370, 540], 2600, '#c6e39a'],
+	['floresta', [300, 470], -1800, '#2f5a3e'],
+	['capsule', [236, 408], 0, '#9fd46a'],
+	['ermos', [190, 304], 0, '#dcbc8c'],
+	['dunas', [176, 168], 2200, '#ecd59a'],
+	['vale', [336, 108], -600, '#7fb069'],
+	['kamado', [470, 118], 0, '#eef3f7'],
+	['glicinias', [574, 196], -1400, '#b1d58f'],
+	['liga', [690, 270], 1400, '#a39686'],
+	['aurea', [782, 106], 0, '#dfe3b0'],
+	['portoes', [918, 196], 0, '#c3cbd4'],
+	['amald', [948, 356], 0, '#6f6589'],
+];
+function clipHalf(poly, a, b, c0) {
+	const out = [];
+	for (let i = 0; i < poly.length; i++) {
+		const P = poly[i], Q = poly[(i + 1) % poly.length], fp = a * P[0] + b * P[1] - c0, fq = a * Q[0] + b * Q[1] - c0;
+		if (fp <= 0) out.push(P);
+		if (fp <= 0 !== fq <= 0) { const t = fp / (fp - fq); out.push([P[0] + (Q[0] - P[0]) * t, P[1] + (Q[1] - P[1]) * t]); }
+	}
+	return out;
+}
+const CELLS = REGIONS.map(([, [xi, yi], wi], i) => {
+	let poly = [[-40, -40], [WW + 40, -40], [WW + 40, WH + 40], [-40, WH + 40]];
+	REGIONS.forEach(([, [xj, yj], wj], j) => { if (j !== i) poly = clipHalf(poly, 2 * (xj - xi), 2 * (yj - yi), xj * xj + yj * yj - xi * xi - yi * yi - wj + wi); });
+	return poly;
+});
+const wob = (x, y) => [x + 5 * noise(x * 0.031 + y * 0.017, 1.3), y + 5 * noise(y * 0.029 - x * 0.013, 2.7)];
+function cellPath(poly) {
+	const pts = [];
+	for (let i = 0; i < poly.length; i++) { const a = poly[i], b = poly[(i + 1) % poly.length], n = Math.max(1, Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1]) / 6)); for (let k = 0; k < n; k++) pts.push(wob(a[0] + ((b[0] - a[0]) * k) / n, a[1] + ((b[1] - a[1]) * k) / n)); }
+	return 'M ' + pts.map((p) => f(p[0]) + ' ' + f(p[1])).join(' L ') + ' Z';
+}
+function pip(poly, x, y) { let inside = false; for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) { const [xi, yi] = poly[i], [xj, yj] = poly[j]; if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside; } return inside; }
+function distSeg(px, py, ax, ay, bx, by) { const l2 = (bx - ax) ** 2 + (by - ay) ** 2, t = l2 ? Math.max(0, Math.min(1, ((px - ax) * (bx - ax) + (py - ay) * (by - ay)) / l2)) : 0; return Math.hypot(px - (ax + t * (bx - ax)), py - (ay + t * (by - ay))); }
+function edgeDist(poly, x, y) { let d = 1e9; for (let i = 0; i < poly.length; i++) { const a = poly[i], b = poly[(i + 1) % poly.length]; d = Math.min(d, distSeg(x, y, a[0], a[1], b[0], b[1])); } return d; }
+function nearRoute(x, y, d) { for (const [, pts] of ROUTES) for (let i = 0; i < pts.length - 1; i++) if (distSeg(x, y, pts[i][0], pts[i][1], pts[i + 1][0], pts[i + 1][1]) < d) return true; for (let i = 0; i < RAIL.length - 1; i++) if (distSeg(x, y, RAIL[i][0], RAIL[i][1], RAIL[i + 1][0], RAIL[i + 1][1]) < d) return true; return false; }
+// lugares com construção: nada de decoração espalhada em cima
+const AVOID = [[...CITY.vila, 40], [...CITY.farol, 42], [...CITY.capsule, 52], [...CITY.dunas, 52], [...CITY.glicinias, 40], [...CITY.aurea, 44], [...CITY.portoes, 56], [...CITY.amald, 50], [...CITY.liga, 48], [...SUB.lago, 22], [...SUB.oasis, 16], [...SUB.circulo, 18], [...SUB.kamado, 16], [...SUB.coliseu, 22], [...SUB.masmorra, 18], [...SUB.caverna, 20], [...SUB.escola, 26], [270, 372, 18], [512, 98, 0]];
+function scatter(id, n, seed, fn, o = {}) {
+	const i = REGIONS.findIndex((rg) => rg[0] === id), poly = CELLS[i], q = rng(seed), placed = [];
+	const xs = poly.map((p) => p[0]), ys = poly.map((p) => p[1]), x0 = Math.max(0, Math.min(...xs)), x1 = Math.min(WW, Math.max(...xs)), y0 = Math.max(0, Math.min(...ys)), y1 = Math.min(WH, Math.max(...ys));
+	let out = '', tries = 0;
+	while (placed.length < n && tries < n * 60) {
+		tries++;
+		const x = o.cx !== undefined ? o.cx + (q() * 2 - 1) * o.r : x0 + q() * (x1 - x0), y = o.cy !== undefined ? o.cy + (q() * 2 - 1) * o.r : y0 + q() * (y1 - y0);
+		if (o.cx !== undefined && Math.hypot(x - o.cx, y - o.cy) > o.r) continue;
+		if (!pip(poly, x, y) || edgeDist(poly, x, y) < (o.edge ?? 7) || !inLand(x, y, o.pad ?? 9) || nearRoute(x, y, o.route ?? 10)) continue;
+		if (!o.ignoreAvoid && AVOID.some(([ax, ay, ar]) => Math.hypot(x - ax, y - ay) < ar)) continue;
+		if (placed.some(([px, py]) => Math.hypot(px - x, py - y) < (o.min ?? 8))) continue;
+		placed.push([x, y]);
+		out += fn(x, y, q);
+	}
+	return out;
+}
+
+// ------------------------------------------------------------------ peças do mapa (unidades)
+const tuft = (x, y, col = '#5f9f4e') => pth(`M ${f(x - 2.5)} ${f(y)} l 1.2 -3 M ${f(x)} ${f(y)} l 0 -3.6 M ${f(x + 2.5)} ${f(y)} l -1.2 -3`, 'none', `stroke="${col}" stroke-width=".9" stroke-linecap="round"`);
+const palm = (x, y, s = 1) => { let o = el(x + 2 * s, y + 2 * s, 7 * s, 3 * s, 'rgba(0,0,0,.18)'); for (let k = 0; k < 6; k++) { const a = k * 60 + 15; o += el(x + 4.5 * s * Math.cos(a * deg), y + 4.5 * s * Math.sin(a * deg), 5 * s, 1.8 * s, k % 2 ? '#3f9a4a' : '#5bbb63', `transform="rotate(${a} ${f(x + 4.5 * s * Math.cos(a * deg))} ${f(y + 4.5 * s * Math.sin(a * deg))})"`); } return o + c(x, y, 1.6 * s, '#8a5a2b'); };
+const wisteria = (x, y, s = 1) => c(x + 1.5, y + 2, 7 * s, 'rgba(0,0,0,.18)') + c(x, y, 6.5 * s, '#9b7fd4') + c(x - 2.4 * s, y - 1.6 * s, 3.2 * s, '#c9b2f2') + c(x + 2.6 * s, y + 1.4 * s, 2.6 * s, '#b799ea') + c(x + 1 * s, y - 3 * s, 1.8 * s, '#e3d6ff');
+const cypress = (x, y, s = 1) => el(x + 2, y + 3, 2.6 * s, 6 * s, 'rgba(0,0,0,.2)') + el(x, y, 2.6 * s, 6.5 * s, '#2f6b3a') + el(x - 0.8 * s, y - 2 * s, 1 * s, 3 * s, '#4f9c55');
+const lemon = (x, y) => treeM(x, y, 0.85, '#4f9c55', '#7cc066') + c(x - 2, y + 1.5, 1.1, '#fde047') + c(x + 2, y - 1, 1.1, '#fde047') + c(x + 0.5, y + 2.6, 1, '#fde047');
+const spire = (x, y, s = 1) => el(x + 5 * s, y + 4 * s, 7 * s, 3.5 * s, 'rgba(0,0,0,.22)') + r(x - 5 * s, y - 10 * s, 10 * s, 12 * s, '#a87d52') + el(x, y + 2 * s, 5 * s, 2.2 * s, '#a87d52') + el(x, y - 10 * s, 5 * s, 2.2 * s, '#d8b07e') + ln(x - 5 * s, y - 5 * s, x + 5 * s, y - 4 * s, '#8a6440', 0.8) + ln(x - 5 * s, y - 1 * s, x + 5 * s, y, '#8a6440', 0.8);
+const crater = (x, y, s = 1) => el(x, y, 7 * s, 4.5 * s, '#c8a576') + el(x, y + 0.6 * s, 5 * s, 3 * s, '#b48f62');
+const dragonBall = (x, y) => c(x, y, 5, '#ffb347', 'opacity=".35"') + c(x, y, 2.4, '#ff9a1f', `stroke="${C.navy}" stroke-width=".5"`) + star(x, y, 1.2, 0.5, 5, '#d92a1c');
+const snowPine = (x, y, s = 1) => el(x + 2, y + 3, 4 * s, 2 * s, 'rgba(60,80,100,.18)') + poly([[x, y - 8 * s], [x + 5 * s, y + 3 * s], [x - 5 * s, y + 3 * s]], '#3f6e55') + poly([[x, y - 8 * s], [x + 2.4 * s, y - 2.6 * s], [x - 2.4 * s, y - 2.6 * s]], '#ffffff') + poly([[x - 3.8 * s, y + 0.6 * s], [x - 1 * s, y - 1 * s], [x + 1.5 * s, y + 0.6 * s]], '#ffffff', 'opacity=".8"');
+const snowRock = (x, y) => el(x, y, 4, 2.6, '#c7d1da') + el(x - 0.6, y - 0.8, 3, 1.6, '#ffffff');
+const peak = (x, y, h) => poly([[x - h * 0.9, y + h * 0.35], [x, y - h], [x + h * 0.9, y + h * 0.35]], C.rock, `stroke="${C.rockEdge}" stroke-width=".8"`) + poly([[x, y - h], [x + h * 0.9, y + h * 0.35], [x + h * 0.1, y + h * 0.35]], 'rgba(0,0,0,.14)') + poly([[x - h * 0.3, y - h * 0.4], [x, y - h], [x + h * 0.3, y - h * 0.4]], C.snow);
+const dune = (x, y, s = 1) => pth(`M ${f(x - 12 * s)} ${f(y)} q ${f(12 * s)} ${f(-7 * s)} ${f(24 * s)} 0`, 'none', 'stroke="#cfb478" stroke-width="1.6" stroke-linecap="round"') + pth(`M ${f(x - 9 * s)} ${f(y + 2)} q ${f(9 * s)} ${f(-5 * s)} ${f(18 * s)} 0`, 'none', 'stroke="#f6e6b6" stroke-width="1" stroke-linecap="round"');
+const rockS = (x, y, s = 1, col = '#b39a7c') => el(x + 1, y + 1.4, 3.6 * s, 2.2 * s, 'rgba(0,0,0,.18)') + el(x, y, 3.4 * s, 2.4 * s, col) + el(x - 0.8 * s, y - 0.8 * s, 1.6 * s, 1 * s, 'rgba(255,255,255,.35)');
+const roofHouse = (x, y, w, h, roof, rot = 0, ridge = 'rgba(255,255,255,.35)') => `<g transform="rotate(${rot} ${f(x)} ${f(y)})">${r(x - w / 2 + 1.2, y - h / 2 + 1.8, w, h, 'rgba(0,0,0,.22)')}${r(x - w / 2, y - h / 2, w, h, roof)}${ln(x - w / 2, y, x + w / 2, y, ridge, 0.9)}${r(x - w / 2, y, w, h / 2, 'rgba(0,0,0,.12)')}</g>`;
+const tower = (x, y, w, h, col, sh = 1) => r(x - w / 2 + 2 * sh, y - h / 2 + 3 * sh, w, h, 'rgba(0,0,0,.25)') + r(x - w / 2, y - h / 2, w, h, col) + r(x - w / 2, y - h / 2, w, 1.4, 'rgba(255,255,255,.35)') + ln(x - w / 2 + 1, y, x + w / 2 - 1, y, 'rgba(0,0,0,.18)', 0.6) + ln(x, y - h / 2 + 1, x, y + h / 2 - 1, 'rgba(0,0,0,.18)', 0.6);
+const dome = (x, y, rr, col = '#f6f7f9', inner = '#fde68a') => c(x + rr * 0.25, y + rr * 0.35, rr, 'rgba(0,0,0,.18)') + c(x, y, rr, col, 'stroke="#9aa5b1" stroke-width=".8"') + c(x, y, rr * 0.55, inner, 'opacity=".9"') + c(x - rr * 0.35, y - rr * 0.35, rr * 0.22, '#ffffff', 'opacity=".8"');
+const sandDome = (x, y, rr) => c(x + rr * 0.3, y + rr * 0.35, rr, 'rgba(90,60,20,.22)') + c(x, y, rr, '#d9b878', 'stroke="#a8834f" stroke-width=".8"') + c(x - rr * 0.3, y - rr * 0.3, rr * 0.4, '#ecd29c') + r(x - 1, y + rr - 2.2, 2, 2.2, '#5a3d1e');
+const ghost = (x, y, s = 1) => el(x, y, 4 * s, 3.4 * s, '#8b5cf6', 'opacity=".85"') + c(x - 1.4 * s, y - 0.6 * s, 0.8 * s, '#fff') + c(x + 1.4 * s, y - 0.6 * s, 0.8 * s, '#fff') + pth(`M ${f(x - 4 * s)} ${f(y + 1.5 * s)} l 1.3 2 1.3 -2 1.3 2 1.3 -2 1.3 2 1.3 -2`, 'none', `stroke="#8b5cf6" stroke-width="${0.8 * s}" opacity=".85"`);
+const web = (x, y, rr) => { let o = ''; for (let k = 0; k < 8; k++) o += ln(x, y, x + rr * Math.cos(k * 45 * deg), y + rr * Math.sin(k * 45 * deg), '#ffffff', 0.5, 'opacity=".85"'); for (const q of [0.4, 0.7, 1]) o += c(x, y, rr * q, 'none', 'stroke="#ffffff" stroke-width=".45" opacity=".85"'); return o; };
+const pirateShip = (x, y, s = 1, rot = 0) => `<g transform="rotate(${rot} ${f(x)} ${f(y)})">${el(x + 1.5 * s, y + 2 * s, 13 * s, 4.5 * s, 'rgba(0,0,0,.2)')}${pth(`M ${f(x - 13 * s)} ${f(y)} Q ${f(x - 6 * s)} ${f(y - 5 * s)} ${f(x + 12 * s)} ${f(y - 1.5 * s)} L ${f(x + 12 * s)} ${f(y + 1.5 * s)} Q ${f(x - 6 * s)} ${f(y + 5 * s)} ${f(x - 13 * s)} ${f(y)} Z`, '#7a4a28')}${el(x - 1 * s, y, 9 * s, 2.6 * s, '#b07a44')}${r(x - 2 * s, y - 9 * s, 9 * s, 7 * s, '#f6f1e6', `rx="${s}"`)}${r(x - 0.6 * s, y - 13 * s, 5 * s, 3.4 * s, '#111827')}${c(x + 1.9 * s, y - 11.3 * s, 0.9 * s, '#ffffff')}${c(x + 12 * s, y, 1.8 * s, '#f6c445')}</g>`;
+const skull = (x, y) => r(x - 3, y - 2, 6, 4, '#111827') + c(x, y - 0.2, 1, '#fff');
+const gondola = (x, y, rot = 0) => `<g transform="rotate(${rot} ${f(x)} ${f(y)})">${el(x, y, 6, 1.6, '#1f2937')}${el(x, y - 0.4, 4, 0.8, '#7f1d1d')}</g>`;
+
 function drawMap() {
 	let s = '';
 	s += r(0, 0, WW, WH, 'url(#seaGrad)');
 	for (let y = 20; y < WH; y += 28) { let d = ''; for (let x = 0; x <= WW; x += 12) d += `${x ? 'L' : 'M'} ${x} ${f(y + 3 * Math.sin(x / 19 + y))} `; s += pth(d, 'none', `stroke="${C.seaLine}" stroke-width=".8" opacity=".35"`); }
-	// ------ ilha: areia em volta e rocha marrom em terraços (estilo mapa de jogo)
-	// ------ ilha: areia em volta e rocha marrom em terraços (estilo mapa de jogo)
-	const land = coast(LAND, 5, 2.2);
-	s += pth(land, '#f0dfae', `stroke="#f0dfae" stroke-width="14" stroke-linejoin="round"`);
-	s += pth(coast(offsetPoly(LAND, -4), 4, 2.2), '#5e4432') + pth(coast(offsetPoly(LAND, -12), 5, 3.3), '#7a5a40') + pth(coast(offsetPoly(LAND, -24), 6, 4.4), '#8f6c4c') + pth(coast(offsetPoly(LAND, -40), 7, 5.5), '#9e7b57');
-	const rk = rng(12);
-	for (let i = 0; i < 420; i++) { const x = 80 + rk() * 940, y = 30 + rk() * 690, l = 8 + rk() * 18, a = rk() * Math.PI; if (!inLand(x, y, 10)) continue; s += pth(`M ${f(x)} ${f(y)} q ${f(l * Math.cos(a) * 0.5)} ${f(l * Math.sin(a) * 0.5 - 3)} ${f(l * Math.cos(a))} ${f(l * Math.sin(a))}`, 'none', 'stroke="#5e4432" stroke-width="1.3" opacity=".5" stroke-linecap="round"'); }
-	for (const [d, op] of [[16, 0.35], [30, 0.2]]) s += pth(coast(offsetPoly(LAND, d), 5, 2.2), 'none', `stroke="#9fd0f0" stroke-width="1" opacity="${op}"`);
+	// águas rasas turquesa na costa tropical (One Piece) e na ilha do Kame
+	for (const [x, y, rr] of [[318, 560, 34], [330, 622, 26], [296, 600, 20], [62, 430, 26], [280, 640, 26]]) s += pth(blob(x, y, rr, 3, x * 0.01), '#5cc8d4', 'opacity=".55"');
+	for (const [d, op] of [[18, 0.35], [34, 0.2]]) s += pth(coast(offsetPoly(LAND, d), 5, 2.2), 'none', `stroke="#9fd0f0" stroke-width="1" opacity="${op}"`);
 
-	// ------ recortes: cada lugar é um platô com o próprio bioma, com uma borda escura de rocha
-	const plate = (d, fill, rim = '#3f2b1d') => pth(d, rim, `stroke="${rim}" stroke-width="7" stroke-linejoin="round"`) + pth(d, fill);
-	const rectD = (x, y, w, h, rx) => `M ${x + rx} ${y} h ${w - 2 * rx} a ${rx} ${rx} 0 0 1 ${rx} ${rx} v ${h - 2 * rx} a ${rx} ${rx} 0 0 1 ${-rx} ${rx} h ${-(w - 2 * rx)} a ${rx} ${rx} 0 0 1 ${-rx} ${-rx} v ${-(h - 2 * rx)} a ${rx} ${rx} 0 0 1 ${rx} ${-rx} Z`;
-	const flowers = (cx, cy, rad, seed) => { const q = rng(seed); let o = ''; for (let i = 0; i < 18; i++) { const a = q() * 360, d = q() * rad; o += c(cx + d * Math.cos(a * deg), cy + d * Math.sin(a * deg), 1.4, ['#f472b6', '#facc15', '#ffffff'][i % 3]); } return o; };
-	const trees = (cx, cy, rad, n, seed, pine = false) => { const q = rng(seed); let o = ''; for (let i = 0; i < n; i++) { const a = q() * 360, d = rad * (0.45 + q() * 0.55); o += (pine ? pineM : treeM)(cx + d * Math.cos(a * deg), cy + d * Math.sin(a * deg), 0.9); } return o; };
-	const P2 = (k) => CITY[k] || SUB[k];
+	// ------ ilha: praia + recorte das regiões
+	s += pth(coast(LAND, 5, 2.2), '#f0dfae', `stroke="#f0dfae" stroke-width="14" stroke-linejoin="round"`);
+	const inner = coast(offsetPoly(LAND, -4), 4, 2.2);
+	DEFS.push(`<clipPath id="landClip"><path d="${inner}"/></clipPath>`);
+	let reg = '';
+	REGIONS.forEach(([, , , col], i) => (reg += pth(cellPath(CELLS[i]), col)));
+	// texturas de chão por região
+	reg += scatter('vila', 60, 1, (x, y) => tuft(x, y, '#6aac52'), { min: 6, pad: 6, route: 7, edge: 3, ignoreAvoid: true });
+	reg += scatter('farol', 30, 2, (x, y) => pth(blob(x, y, 7, 1.5, x), '#f3e2a6', 'opacity=".9"'), { min: 10, pad: 4, route: 6, edge: 4, ignoreAvoid: true });
+	reg += scatter('capsule', 50, 3, (x, y) => tuft(x, y, '#7dbb4f'), { min: 6, pad: 6, route: 7, edge: 3, ignoreAvoid: true });
+	reg += scatter('ermos', 26, 4, (x, y) => el(x, y, 6, 3, '#cfae7d', 'opacity=".8"'), { min: 9, pad: 6, route: 7, edge: 3, ignoreAvoid: true });
+	reg += scatter('dunas', 40, 5, (x, y) => dune(x, y, 0.8), { min: 16, pad: 8, route: 9, edge: 6, ignoreAvoid: true });
+	reg += scatter('kamado', 40, 6, (x, y) => el(x, y, 5, 1.6, '#dbe4ec'), { min: 8, pad: 6, route: 7, edge: 3, ignoreAvoid: true });
+	reg += scatter('glicinias', 40, 7, (x, y) => tuft(x, y, '#86b366'), { min: 6, pad: 6, route: 7, edge: 3, ignoreAvoid: true });
+	reg += scatter('aurea', 30, 8, (x, y) => el(x, y, 5, 2.4, '#cfd394', 'opacity=".9"'), { min: 8, pad: 6, route: 7, edge: 3, ignoreAvoid: true });
+	reg += scatter('liga', 30, 9, (x, y) => rockS(x, y, 0.8, '#8f8376'), { min: 8, pad: 6, route: 7, edge: 3, ignoreAvoid: true });
+	reg += scatter('amald', 60, 10, (x, y) => c(x, y, 1.2, '#8b7fb0', 'opacity=".7"'), { min: 6, pad: 6, route: 7, edge: 3, ignoreAvoid: true });
+	// névoa amaldiçoada sobre a região do JJK
+	const iA = REGIONS.findIndex((rg) => rg[0] === 'amald');
+	reg += `<g opacity=".55">${pth(cellPath(CELLS[iA]), 'url(#gPurple)')}</g>`;
+	// bordas entre regiões: degrau de barro
+	REGIONS.forEach((_, i) => (reg += pth(cellPath(CELLS[i]), 'none', 'stroke="#5e4432" stroke-width="4.2" stroke-linejoin="round"')));
+	REGIONS.forEach((_, i) => (reg += pth(cellPath(CELLS[i]), 'none', 'stroke="#b08a62" stroke-width="1.1" stroke-linejoin="round" opacity=".8"')));
+	s += `<g clip-path="url(#landClip)">${reg}</g>`;
+	s += pth(inner, 'none', 'stroke="#6b4c33" stroke-width="2.6"');
 
-	// Vila Verdejante (ponta da península), Lago Espelhado
-	s += plate(blob(...P2('vila'), 54, 5, 1.1), C.grass) + flowers(...P2('vila'), 44, 2) + trees(...P2('vila'), 52, 9, 3);
-	s += plate(blob(...P2('lago'), 30, 3, 1.9), '#8fcf6f') + pth(blob(...P2('lago'), 18, 2.5, 8.1), C.water, 'stroke="#3d93b8" stroke-width="1.6"') + el(P2('lago')[0] - 6, P2('lago')[1] - 6, 5, 2.2, '#bfe9f7', 'opacity=".6"') + treeM(P2('lago')[0] - 22, P2('lago')[1] + 14, 0.8) + treeM(P2('lago')[0] + 20, P2('lago')[1] - 16, 0.8);
-	// Cidade Farol: grama atrás, praia na frente (costa oeste da península)
-	s += plate(blob(...P2('farol'), 54, 5, 2.7), '#9bc77e') + pth(blob(P2('farol')[0] - 16, P2('farol')[1] + 6, 40, 4, 2.8), '#f0dfae') + trees(P2('farol')[0] + 18, P2('farol')[1] - 16, 36, 5, 4);
-	// Floresta das Lanternas
-	{ const [x, y] = P2('floresta'); s += plate(blob(x, y, 48, 5, 6.6), '#2f4a3a') + pth(blob(x, y, 32, 4, 7.1), '#263d30'); const q = rng(4); for (let i = 0; i < 26; i++) { const a = q() * 360, d = q() * 40; s += c(x + d * Math.cos(a * deg), y + d * Math.sin(a * deg), 2.6 + q() * 2.8, i % 3 ? '#35634a' : '#2a5340'); } for (const [dx, dy] of [[-20, -14], [14, -20], [22, 12], [-24, 16], [0, 26]]) s += lanternM(x + dx, y + dy); }
-	// Capsule City: platô de concreto
-	{ const [x, y] = P2('capsule'); s += plate(rectD(x - 62, y - 44, 124, 88, 12), '#dfe4ea'); for (let gx = x - 48; gx < x + 62; gx += 20) s += ln(gx, y - 44, gx, y + 44, '#c8cfd8', 1); }
-	// Círculo de Pedra
-	{ const [x, y] = P2('circulo'); s += plate(blob(x, y, 30, 3, 3.1), '#8fcf6f'); for (let i = 0; i < 8; i++) { const a = i * 45; s += r(x + 13 * Math.cos(a * deg) - 1.8, y + 9 * Math.sin(a * deg) - 2.6, 3.6, 5.2, '#8a8f98', `stroke="${C.rockEdge}" stroke-width=".6"`); } }
-	// Deserto de Vidro (lobo noroeste) com a Cidade das Dunas e o Oásis dentro
-	{ const [x, y] = DESERT; s += plate(blob(x, y, 108, 9, 5.1), '#ead9a0'); for (let i = 0; i < 18; i++) { const px = x - 90 + (i % 6) * 36, py = y - 70 + Math.floor(i / 6) * 56 + (i % 2) * 16; if (Math.hypot(px - x, py - y) > 86) continue; s += pth(`M ${px - 14} ${py} q 14 -8 28 0`, 'none', 'stroke="#d8c184" stroke-width="1.8"'); } const [ox, oy] = P2('oasis'); s += pth(blob(ox, oy, 12, 1.5, 6.6), C.water, 'stroke="#3d93b8" stroke-width="1.2"') + treeM(ox - 12, oy - 8, 0.7, '#4f9c55') + treeM(ox + 12, oy - 8, 0.7, '#4f9c55'); for (const [dx, dy] of [[-70, 40], [-50, -60], [60, 50], [70, -30], [-10, 80], [20, -80]]) s += r(x + dx - 1.5, y + dy - 8, 3, 10, '#4f9c55') + r(x + dx - 5, y + dy - 5, 3, 4, '#4f9c55') + r(x + dx + 2, y + dy - 7, 3, 4, '#4f9c55'); }
-	// Penhasco dos Cata-ventos
-	{ const [x, y] = P2('penhasco'); s += plate(blob(x, y, 38, 4, 9.9), C.rock) + pth(blob(x, y + 4, 22, 3, 10.2), '#9bc77e'); for (let a = 0; a < 360; a += 10) s += ln(x + 30 * Math.cos(a * deg), y + 30 * Math.sin(a * deg), x + 38 * Math.cos(a * deg), y + 38 * Math.sin(a * deg), C.rockEdge, 1); for (const [dx, dy] of [[-14, -14], [4, -20], [18, -8]]) s += windmillM(x + dx, y + dy, 0.8); }
-	// Monte Nevado
-	{ const [x, y] = P2('nevado'); s += plate(blob(x, y, 62, 6, 7.7), '#eef3f6'); const q = rng(5); for (let i = 0; i < 14; i++) { const a = q() * 360, d = q() * 46, px = x + d * Math.cos(a * deg), py = y + d * Math.sin(a * deg), h = 8 + q() * 11; if (Math.hypot(px - x, py - y) < 14) continue; s += poly([[px - h * 0.8, py + h * 0.3], [px, py - h], [px + h * 0.8, py + h * 0.3]], '#b7c3cc', `stroke="${C.rockEdge}" stroke-width=".7"`) + poly([[px - h * 0.4, py - h * 0.35], [px, py - h], [px + h * 0.4, py - h * 0.35]], '#ffffff'); } for (const [dx, dy] of [[-40, 36], [40, 34], [-42, -30], [44, -28]]) s += pineM(x + dx, y + dy, 1, '#4b7a5c'); }
-	// Vila das Glicínias e Vulcão Adormecido
-	s += plate(blob(...P2('glicinias'), 58, 5, 4.2), '#9bc77e') + trees(...P2('glicinias'), 54, 6, 7, true);
-	{ const [x, y] = P2('vulcao'); s += plate(blob(x, y, 50, 5, 2.5), '#5e5044'); for (let i = 0; i < 4; i++) s += pth(blob(x, y, 44 - i * 10, 4, 2.5 + i), ['#8a7b6b', '#7c6c5c', '#6e5f50', '#5e5044'][i], `stroke="${C.rockEdge}" stroke-width=".8"`); s += c(x, y, 10, '#3b1f14') + c(x, y, 6, '#ff6a2b') + c(x + 6, y - 20, 8, 'rgba(255,255,255,.45)') + c(x + 14, y - 30, 6, 'rgba(255,255,255,.35)'); }
-	// Costa de Pedra e Cidade Áurea
-	{ const [x, y] = P2('costa'); s += plate(rectD(x - 54, y - 18, 108, 36, 10), '#a7978a'); for (let px = x - 48; px < x + 50; px += 6) s += ln(px, y - 12 + 2 * Math.sin(px / 9), px + 3, y + 12 + 2 * Math.sin(px / 9), C.rockEdge, 1.2, 'opacity=".7"'); }
-	s += plate(blob(...P2('aurea'), 58, 5, 8.8), '#e9ddc5') + pth(blob(P2('aurea')[0], P2('aurea')[1] + 16, 38, 4, 8.9), '#9bc77e', 'opacity=".7"');
-	// Cidade dos Portões e Masmorra Dupla
-	{ const [x, y] = P2('portoes'); s += plate(rectD(x - 56, y - 42, 112, 84, 10), '#cfd6de'); }
-	s += plate(blob(...P2('masmorra'), 20, 2, 3.3), '#101522');
-	// Cidade Amaldiçoada, Caminho da Vitória, Liga
-	{ const [x, y] = P2('amald'); s += plate(rectD(x - 46, y - 36, 92, 72, 10), '#4a3f66'); }
-	s += plate(blob(...P2('caverna'), 26, 3, 1.5), '#6e5f50');
-	s += plate(blob(...P2('liga'), 56, 5, 2.2), '#9bc77e') + trees(...P2('liga'), 50, 8, 9);
-	// Serra do Meio em volta da Liga
-	{ const [lx, ly] = P2('liga'), q = rng(3), peaks = []; for (let i = 0; i < 110; i++) { const a = q() * 360, d = 64 + q() * 50, x = lx + d * Math.cos(a * deg) * 1.35, y = ly + d * Math.sin(a * deg) * 0.75; if (!inLand(x, y, 12) || Math.hypot(x - P2('aurea')[0], y - P2('aurea')[1]) < 72 || Math.hypot(x - P2('glicinias')[0], y - P2('glicinias')[1]) < 70 || Math.hypot(x - P2('caverna')[0], y - P2('caverna')[1]) < 32) continue; peaks.push([x, y, 8 + q() * 11]); } peaks.sort((p, w) => p[1] - w[1]); for (const [x, y, h] of peaks) s += poly([[x - h * 0.9, y + h * 0.35], [x, y - h], [x + h * 0.9, y + h * 0.35]], C.rock, `stroke="${C.rockEdge}" stroke-width=".8"`) + poly([[x - h * 0.3, y - h * 0.4], [x, y - h], [x + h * 0.3, y - h * 0.4]], C.snow); }
-	// Ilha do Navio (naufrágio), a oeste da península
-	{ const [x, y] = P2('ilhanavio'); s += pth(blob(x, y, 18, 2, 11.3), '#f0dfae') + pth(blob(x, y, 11, 1.5, 11.3), C.grass) + shipM(x + 8, y - 6, 0.8, '#d9d0b2') + treeM(x - 6, y - 4, 0.7); }
-	// Ilha Crescente: o Mundo dos Sonhos, dentro da baía
+	// ------ rios
+	const vale = 'M 486 150 Q 440 152 404 134 Q 366 118 340 112 L 326 104 Q 304 84 290 58';
+	s += `<g clip-path="url(#landClip)">${pth(vale, 'none', 'stroke="#6b4c33" stroke-width="26" stroke-linecap="round"')}${pth(vale, 'none', 'stroke="#9b7a5a" stroke-width="21" stroke-linecap="round"')}${pth(vale, 'none', 'stroke="#4fb3d9" stroke-width="7" stroke-linecap="round"')}${pth(vale, 'none', 'stroke="#bfe9f7" stroke-width="1.2" stroke-dasharray="6 5" opacity=".8"')}</g>`;
+	s += c(330, 108, 7, '#bfe9f7') + c(330, 108, 4, '#ffffff', 'opacity=".7"');
+	for (let k = 0; k < 4; k++) s += ln(334 + k * 1.8, 100 - k, 330 + k * 1.8, 107 - k, '#ffffff', 0.9);
+	// estátuas do Vale do Fim, uma de cada lado da cachoeira
+	for (const [x, y, col] of [[316, 124, '#9aa3ad'], [346, 96, '#8c96a0']]) s += el(x + 2, y + 3, 6, 3, 'rgba(0,0,0,.25)') + el(x, y, 5, 7, col, `stroke="${C.rockEdge}" stroke-width=".8"`) + c(x, y - 6, 3, col, `stroke="${C.rockEdge}" stroke-width=".8"`);
+	const han = 'M 858 262 Q 900 242 950 238 Q 985 234 1012 226';
+	s += `<g clip-path="url(#landClip)">${pth(han, 'none', 'stroke="#4b7fa6" stroke-width="10" stroke-linecap="round"')}${pth(han, 'none', 'stroke="#6fb0d8" stroke-width="7" stroke-linecap="round"')}</g>`;
+	for (const x of [900, 948, 988]) s += r(x - 1.6, 228, 3.2, 20, '#e5e7eb', `transform="rotate(-6 ${x} 238)"`);
+
+	// ------ decoração por região (cada uma com a cara da série)
+	s += scatter('vila', 16, 11, (x, y) => treeM(x, y, 0.95), { min: 12 }) + scatter('vila', 26, 12, (x, y) => c(x, y, 1.3, ['#f472b6', '#facc15', '#ffffff', '#fb7185'][Math.floor(x) % 4]), { min: 5 });
+	s += scatter('farol', 22, 13, (x, y) => palm(x, y, 1), { min: 12 });
+	s += scatter('floresta', 46, 14, (x, y, q) => c(x + 1, y + 1.4, 4.6, 'rgba(0,0,0,.25)') + c(x, y, 4.6, q() > 0.5 ? '#2a5340' : '#35634a') + c(x - 1.4, y - 1.4, 2, '#4b7d5c'), { min: 6, pad: 6, edge: 4 });
+	s += scatter('floresta', 9, 15, (x, y) => lanternM(x, y), { min: 14 });
+	s += scatter('capsule', 14, 16, (x, y) => treeM(x, y, 0.9, '#3f9a4a', '#6cc46d'), { min: 12 });
+	s += scatter('ermos', 16, 17, (x, y, q) => spire(x, y, 0.8 + q() * 0.6), { min: 16 }) + scatter('ermos', 6, 18, (x, y) => crater(x, y, 1), { min: 18 });
+	s += dragonBall(176, 268) + dragonBall(238, 288);
+	s += scatter('dunas', 8, 19, (x, y) => rockS(x, y, 1, '#c9a56a'), { min: 20 });
+	s += scatter('vale', 26, 20, (x, y) => treeM(x, y, 0.95, '#2f8a3f', '#5bbb63'), { min: 9 });
+	s += scatter('kamado', 30, 21, (x, y, q) => snowPine(x, y, 0.9 + q() * 0.3), { min: 9 }) + scatter('kamado', 10, 22, (x, y) => snowRock(x, y), { min: 12 });
+	s += scatter('glicinias', 7, 29, (x, y) => r(x - 9, y - 5, 18, 10, '#8fc0a0', 'rx="1.5" stroke="#6b8f4e" stroke-width="1.4"') + ln(x - 9, y, x + 9, y, '#6b8f4e', 1) + ln(x - 6, y - 3, x - 2, y - 3, '#d9f0ff', 0.8, 'opacity=".8"'), { min: 26, cx: 590, cy: 300, r: 70 });
+	s += scatter('glicinias', 34, 23, (x, y, q) => wisteria(x, y, 0.85 + q() * 0.3), { min: 12 });
+	s += scatter('liga', 34, 24, (x, y, q) => peak(x, y, 9 + q() * 10), { min: 12, edge: 6 });
+	s += scatter('aurea', 14, 25, (x, y) => cypress(x, y, 1), { min: 10 }) + scatter('aurea', 10, 26, (x, y) => lemon(x, y), { min: 12 });
+	s += scatter('portoes', 10, 27, (x, y) => treeM(x, y, 0.8, '#4b8a5a', '#6cae78'), { min: 12 });
+	s += scatter('amald', 12, 28, (x, y) => ghost(x, y, 0.9), { min: 16 });
+
+	// ------ Vila Verdejante: casinhas, laboratório, plantação, lago
+	{
+		const [x, y] = CITY.vila;
+		for (const [fx, fy, w, h] of [[x + 14, y + 18, 28, 16], [x - 42, y + 16, 24, 14]]) { s += r(fx, fy, w, h, '#b88a55', 'rx="2"'); for (let k = 2; k < h; k += 3.6) s += ln(fx + 1, fy + k, fx + w - 1, fy + k, '#7fb35a', 1.6); }
+		for (const [dx, dy, roof] of [[-14, -10, '#d9412f'], [2, -16, '#2d9bf0'], [16, -6, '#d9412f'], [-6, 4, '#f2c230']]) s += houseM(x + dx, y + dy, 11, 9, roof);
+		s += r(x + 22, y - 30, 20, 13, '#f8fafc', 'rx="1.5" stroke="#94a3b8" stroke-width="1"') + r(x + 24, y - 28, 16, 4, '#60a5fa') + c(x + 40, y - 32, 1.4, '#ef4444');
+		s += windmillM(x - 30, y - 18, 0.9);
+		s += pth(blob(SUB.lago[0], SUB.lago[1], 17, 2.5, 8.1), C.water, 'stroke="#3d93b8" stroke-width="1.6"') + el(SUB.lago[0] - 6, SUB.lago[1] - 6, 5, 2.2, '#bfe9f7', 'opacity=".6"');
+	}
+	// ------ Cidade Farol (One Piece): praia tropical, cais, navios piratas, farol
+	{
+		const [x, y] = CITY.farol;
+		s += r(x - 38, y - 10, 24, 4, '#a9865e') + r(x - 34, y + 12, 22, 4, '#a9865e');
+		for (const [dx, dy] of [[-36, -6], [-28, -6], [-32, 16], [-24, 16]]) s += r(x + dx, y + dy, 2.4, 5, '#7a4a28');
+		s += pirateShip(x - 62, y - 8, 1, -8) + pirateShip(x - 56, y + 22, 0.8, 6);
+		for (const [dx, dy, roof] of [[-6, -18, '#2d9bf0'], [8, -24, '#f97316'], [20, -12, '#22c55e'], [-2, 2, '#f2c230'], [14, 6, '#ec4899'], [26, 2, '#2d9bf0']]) s += houseM(x + dx, y + dy, 11, 8, roof);
+		s += c(x - 26, y + 30, 3.4, '#7a4a28') + c(x - 20, y + 32, 3, '#7a4a28'); // barris
+		s += r(x - 26, y - 40, 4, 16, '#f3f4f6') + r(x - 26, y - 36, 4, 3.5, '#ef4444') + r(x - 26, y - 29, 4, 3.5, '#ef4444') + c(x - 24, y - 42, 2.6, '#fde68a') + c(x - 24, y - 42, 9, '#fde68a', 'opacity=".25"');
+		s += skull(x + 30, y - 30) + r(x + 26.6, y - 30, 0.8, 10, '#4b2e18');
+		s += gymM(x + 30, y + 22, TYPE.agua);
+	}
+	// ------ Capsule City (Dragon Ball): domos, Capsule Corp., ringue do torneio
+	{
+		const [x, y] = CITY.capsule;
+		s += c(x, y, 46, '#e6eaef', 'stroke="#c3cad4" stroke-width="2"') + c(x, y, 31, 'none', 'stroke="#cfd6de" stroke-width="4"');
+		for (const [dx, dy, rr] of [[-30, -18, 8], [-34, 10, 7], [-16, 30, 8], [14, 32, 7], [32, 16, 8], [34, -12, 7], [16, -32, 8], [-12, -34, 7]]) s += dome(x + dx, y + dy, rr);
+		s += dome(x, y, 14, '#ffffff', '#fbbf24') + T(x, y + 2.3, 'CC', { size: 6.5, weight: 800, anchor: 'middle', fill: '#1f2937', halo: false });
+		for (const [a, col] of [[30, '#ef4444'], [150, '#3b82f6'], [260, '#22c55e']]) s += el(x + 31 * Math.cos(a * deg), y + 31 * Math.sin(a * deg), 3, 1.8, col, `stroke="${C.navy}" stroke-width=".5"`);
+		s += gymM(x + 44, y - 30, TYPE.martial);
+		// ringue do Torneio de Artes Marciais
+		const [tx, ty] = [270, 372];
+		s += c(tx, ty, 17, '#efcf86', 'stroke="#a9853c" stroke-width="1.5"') + r(tx - 9, ty - 9, 18, 18, '#f4e7c3', 'stroke="#3f3f46" stroke-width="1"');
+		for (let k = 1; k < 3; k++) s += ln(tx - 9 + k * 6, ty - 9, tx - 9 + k * 6, ty + 9, '#d9c89a', 0.7) + ln(tx - 9, ty - 9 + k * 6, tx + 9, ty - 9 + k * 6, '#d9c89a', 0.7);
+		// círculo de pedra nos ermos
+		for (let i = 0; i < 8; i++) { const a = i * 45; s += r(SUB.circulo[0] + 12 * Math.cos(a * deg) - 1.8, SUB.circulo[1] + 8 * Math.sin(a * deg) - 2.6, 3.6, 5.2, '#8a8f98', `stroke="${C.rockEdge}" stroke-width=".6"`); }
+	}
+	// ------ Casa do Kame: ilhota no mar a oeste
+	{
+		const [x, y] = SUB.kame;
+		s += pth(blob(x, y, 11, 1.2, 4.4), '#f3e2a6') + r(x - 4, y - 5, 9, 7, '#f472b6', 'stroke="#9d174d" stroke-width=".6"') + r(x - 4.6, y - 6, 10, 2.4, '#dc2626') + palm(x + 6, y + 3, 0.6);
+	}
+	// ------ Cidade das Dunas (Naruto): muralha de areia, domos, torre do Kazekage, oásis
+	{
+		const [x, y] = CITY.dunas;
+		s += c(x, y, 44, '#e5c98d') + c(x, y, 44, 'none', 'stroke="#a8834f" stroke-width="9"') + c(x, y, 44, 'none', 'stroke="#c9a56a" stroke-width="6"');
+		for (const [dx, dy, rr] of [[-24, -18, 6], [-10, -28, 5], [10, -26, 6], [26, -14, 5], [-28, 4, 5], [-18, 22, 6], [2, 28, 5], [22, 20, 6], [30, 2, 5], [-8, 10, 4.5], [12, 10, 4.5]]) s += sandDome(x + dx, y + dy, rr);
+		s += sandDome(x, y - 6, 10) + c(x, y - 6, 3, '#dc2626', `stroke="${C.navy}" stroke-width=".6"`);
+		for (const [a, b2] of [[[x - 70, y - 40], [x - 40, y - 60]], [[x + 54, y + 40], [x + 80, y + 20]]]) s += pth(`M ${a[0]} ${a[1]} Q ${(a[0] + b2[0]) / 2 + 10} ${(a[1] + b2[1]) / 2 + 10} ${b2[0]} ${b2[1]}`, 'none', 'stroke="#f6e6b6" stroke-width="2" stroke-dasharray="6 4" opacity=".9"');
+		const [ox, oy] = SUB.oasis;
+		s += pth(blob(ox, oy, 11, 1.5, 6.6), C.water, 'stroke="#3d93b8" stroke-width="1.2"') + palm(ox - 12, oy - 6, 0.7) + palm(ox + 12, oy - 4, 0.7) + palm(ox, oy + 12, 0.6);
+		s += gymM(x + 34, y + 40, TYPE.vento);
+	}
+	// ------ Monte Kamado (Demon Slayer): cabana de carvão na neve e a teia do Monte Natagumo
+	{
+		const [x, y] = SUB.kamado;
+		s += roofHouse(x, y, 13, 9, '#4a3a2c') + c(x + 4, y - 9, 3, 'rgba(120,120,120,.5)') + c(x + 7, y - 15, 2.4, 'rgba(120,120,120,.4)');
+		for (const [dx, dy] of [[-6, 8], [-2, 9], [2, 8]]) s += r(x + dx, y + dy, 2.6, 1.6, '#1f2937');
+		const [nx, ny] = SUB.natagumo;
+		for (const [dx, dy] of [[-12, -6], [10, -8], [0, 8], [-14, 10], [14, 8]]) s += c(nx + dx, ny + dy, 5, '#3c4c48') + c(nx + dx - 1.4, ny + dy - 1.4, 2.2, '#56685f');
+		s += web(nx - 2, ny - 2, 8) + web(nx + 12, ny + 6, 5);
+	}
+	// ------ Vila das Glicínias (Demon Slayer): casas de madeira, torii, mansão das borboletas
+	{
+		const [x, y] = CITY.glicinias;
+		for (const [dx, dy] of [[-18, -10], [-2, -16], [14, -8], [-12, 8], [6, 6]]) s += roofHouse(x + dx, y + dy, 13, 9, '#3f3a40', 0, 'rgba(255,255,255,.25)');
+		for (let k = 0; k < 3; k++) s += toriiM(x - 30 + k * 6, y + 26 - k * 4, 0.8);
+		s += roofHouse(x + 30, y + 22, 18, 12, '#6b4a3a') + c(x + 24, y + 12, 1.6, '#60a5fa') + c(x + 36, y + 14, 1.4, '#93c5fd') + c(x + 40, y + 28, 1.6, '#60a5fa');
+		s += gymM(x + 30, y - 22, TYPE.fogo);
+	}
+	// ------ Liga dos Vanguardas: platô verde no meio da serra, torre e o Caminho da Vitória
+	{
+		const [x, y] = CITY.liga;
+		s += pth(blob(x, y, 40, 3, 2.2), '#5e4432') + pth(blob(x, y, 37, 3, 2.2), '#9bc77e');
+		for (const [dx, dy] of [[-26, -14], [24, -16], [-24, 18], [26, 16]]) s += treeM(x + dx, y + dy, 0.8);
+		s += c(x, y, 20, '#d6ceb9', 'stroke="#a99f88" stroke-width="1.5"') + poly([[x, y - 18], [x + 11, y + 6], [x + 5, y + 12], [x - 5, y + 12], [x - 11, y + 6]], '#b91c1c', `stroke="${C.gold}" stroke-width="1.8"`) + star(x, y + 1, 5.5, 2.4, 5, C.gold);
+		const [cx2, cy2] = SUB.caverna;
+		s += pth(blob(cx2, cy2, 14, 2, 1.5), '#6e5f50', `stroke="${C.rockEdge}" stroke-width="1"`) + pth(`M ${cx2 - 8} ${cy2 + 5} A 8 7 0 0 1 ${cx2 + 8} ${cy2 + 5} Z`, '#1d140e') + r(cx2 - 10, cy2 + 1, 2.4, 5, '#8a5a2b') + r(cx2 + 7.6, cy2 + 1, 2.4, 5, '#8a5a2b');
+	}
+	// ------ Cidade Áurea (JoJo): telhados de terracota, Coliseu, porto com gôndolas, costa de pedra
+	{
+		const [x, y] = CITY.aurea;
+		const q = rng(51);
+		for (let gx = -36; gx <= 36; gx += 12) for (let gy = -26; gy <= 26; gy += 10) { if (Math.hypot(gx, gy * 1.3) > 40 || Math.hypot(gx, gy) < 11 || q() < 0.12) continue; s += roofHouse(x + gx + (q() - 0.5) * 2, y + gy + (q() - 0.5) * 2, 9 + q() * 2, 7, ['#c2410c', '#ea580c', '#b45309', '#dc6b3c'][Math.floor(q() * 4)], q() > 0.7 ? 90 : 0); }
+		s += c(x, y, 8, '#e9ddc5', 'stroke="#a89c86" stroke-width="1"') + star(x, y, 4, 1.6, 5, C.gold);
+		const [cx2, cy2] = SUB.coliseu;
+		s += el(cx2 + 2, cy2 + 3, 17, 12, 'rgba(0,0,0,.2)') + el(cx2, cy2, 17, 12, '#d6c4a0', 'stroke="#8a7458" stroke-width="1.2"') + el(cx2, cy2, 17, 12, 'none', 'stroke="#a88f6a" stroke-width="2.4" stroke-dasharray="1.6 1.6"') + el(cx2, cy2, 10, 6.5, '#ead9b0', 'stroke="#8a7458" stroke-width=".8"');
+		s += pth(`M ${cx2 + 10} ${cy2 - 9} A 17 12 0 0 1 ${cx2 + 17} ${cy2}`, 'none', 'stroke="#dfe3b0" stroke-width="3"'); // parte desabada
+		const [kx, ky] = SUB.costa;
+		for (let px = kx - 40; px < kx + 40; px += 6) s += ln(px, ky - 6 + 2 * Math.sin(px / 9), px + 3, ky + 8 + 2 * Math.sin(px / 9), C.rockEdge, 1.2, 'opacity=".7"');
+		s += gondola(770, 30, -10) + gondola(796, 26, 8) + gondola(744, 26, 4);
+		s += gymM(x + 36, y + 24, TYPE.terra);
+	}
+	// ------ Cidade dos Portões (Solo Leveling): arranha-céus, Associação dos Caçadores, portões, Masmorra Dupla, Ilha de Jeju
+	{
+		const [x, y] = CITY.portoes;
+		const q = rng(61);
+		for (let gx = -48; gx <= 44; gx += 13) for (let gy = -44; gy <= 30; gy += 13) { const bx = x + gx, by = y + gy; if (Math.hypot(gx, gy) > 52 || Math.abs(by - (238 - (bx - 900) * 0.05)) < 9) continue; s += tower(bx, by, 9 + q() * 2, 9 + q() * 2, ['#64748b', '#94a3b8', '#475569', '#7b8ba1'][Math.floor(q() * 4)], 0.6 + q() * 0.8); }
+		s += tower(x + 6, y - 8, 12, 12, '#1e293b', 2) + r(x + 2, y - 12, 8, 8, '#f6c445', 'opacity=".9"');
+		for (const [gx, gy, sc] of [[x - 34, y - 26, 1.2], [x + 30, y + 22, 1], [x - 10, y + 32, 0.9]]) s += gateM(gx, gy, sc);
+		s += c(x + 40, y - 30, 7, '#ef4444', 'opacity=".35"') + c(x + 40, y - 30, 4.5, '#b91c1c', 'stroke="#fecaca" stroke-width="1.2"'); // portão vermelho
+		const [mx, my] = SUB.masmorra;
+		s += c(mx, my, 16, 'url(#gDark)') + r(mx - 9, my - 9, 18, 18, '#3f3f46', 'stroke="#9ca3af" stroke-width="1"') + r(mx - 5, my - 5, 10, 10, '#52525b') + c(mx, my - 1, 2.6, '#9ca3af') + c(mx, my - 1, 1, '#ef4444');
+		const [jx, jy] = SUB.jeju;
+		s += pth(blob(jx, jy, 15, 1.6, 7.7), '#f0dfae') + pth(blob(jx, jy, 11, 1.4, 7.7), '#7fb069');
+		for (const [dx, dy] of [[-4, -3], [4, 2], [-2, 5]]) s += el(jx + dx, jy + dy, 3, 2, '#7a4a28') + c(jx + dx, jy + dy - 0.6, 0.8, '#1d140e');
+		s += gymM(x - 46, y + 4, TYPE.sombra);
+	}
+	// ------ Cidade Amaldiçoada (JJK): prédios escuros, cruzamento de Shibuya, Escola Jujutsu, cúpula do domínio
+	{
+		const [x, y] = CITY.amald;
+		const q = rng(71);
+		for (let gx = -40; gx <= 40; gx += 12) for (let gy = -36; gy <= 36; gy += 12) { if (Math.hypot(gx, gy) > 44 || (Math.abs(gx) < 10 && Math.abs(gy) < 10)) continue; s += tower(x + gx, y + gy, 9, 9, ['#3b3354', '#4a4066', '#2e2842'][Math.floor(q() * 3)], 0.8 + q()); if (q() > 0.5) s += r(x + gx - 2, y + gy - 2, 1.6, 1.6, '#f0abfc'); }
+		s += r(x - 9, y - 9, 18, 18, '#3f3f46');
+		for (let k = -7; k <= 7; k += 2.4) s += r(x + k, y - 9, 1.2, 4, '#e5e7eb') + r(x + k, y + 5, 1.2, 4, '#e5e7eb') + r(x - 9, y + k, 4, 1.2, '#e5e7eb') + r(x + 5, y + k, 4, 1.2, '#e5e7eb');
+		const [ex, ey] = SUB.escola;
+		s += pth(blob(ex, ey, 20, 2, 9.1), '#2f5a3e');
+		for (const [dx, dy] of [[-14, -6], [12, -10], [14, 8], [-12, 10]]) s += c(ex + dx, ey + dy, 4, '#3f7a52');
+		s += roofHouse(ex, ey - 2, 14, 9, '#7c2d12') + toriiM(ex, ey + 14, 0.8);
+		s += c(x + 30, y + 36, 11, 'url(#gDark)') + c(x + 30, y + 36, 7, '#0b0612', 'stroke="#c4a5ff" stroke-width="1"') + c(x + 30, y + 36, 1.8, '#fff');
+		s += gymM(x + 40, y - 30, TYPE.onirico);
+	}
+	// ------ Estação Astral (Star Rail): estação espacial flutuando na baía
+	{
+		const [x, y] = CITY.astral;
+		const q = rng(31);
+		for (let i = 0; i < 40; i++) { const a = q() * 360, d = 36 + q() * 34; s += c(x + d * Math.cos(a * deg), y + d * Math.sin(a * deg) * 0.8, 0.5 + q(), '#fff', `opacity="${0.4 + q() * 0.5}"`); }
+		s += c(x, y, 34, '#1b1740', 'opacity=".55"') + el(x, y + 2, 28, 18, '#2a2553', 'stroke="#9fa8ff" stroke-width="1.5"') + el(x, y + 2, 34, 22, 'none', 'stroke="#c7cbff" stroke-width="1" stroke-dasharray="3 3"');
+		for (const [dx, dy] of [[-22, 2], [22, 2], [0, 16], [0, -12]]) s += r(x + dx - 5, y + dy - 3, 10, 6, '#4b4a8a', 'rx="1.5" stroke="#c7cbff" stroke-width=".7"');
+		s += c(x, y + 2, 7, '#fde68a') + c(x, y + 2, 3.4, '#fff');
+		s += gymM(x + 26, y - 18, TYPE.raio);
+	}
+	// ------ Ilha do Navio (naufrágio do One Piece)
+	{
+		const [x, y] = SUB.ilhanavio;
+		s += pth(blob(x, y, 17, 2, 11.3), '#f3e2a6') + pth(blob(x, y, 10, 1.5, 11.3), '#c6e39a') + palm(x - 5, y - 2, 0.7) + pirateShip(x + 12, y + 8, 0.6, 35);
+	}
+	// ------ Ilha Crescente: o Mundo dos Sonhos, dentro da baía
 	{
 		const [cx2, cy2] = DREAM;
 		s += c(cx2, cy2, 46, 'url(#gPink)', 'opacity=".45"');
@@ -186,93 +415,30 @@ function drawMap() {
 		s += pth(`M ${cx2 - 3} ${cy2 - 26} A 26 26 0 1 0 ${cx2 - 3} ${cy2 + 26} A 19 19 0 1 1 ${cx2 - 3} ${cy2 - 26} Z`, '#6b4a8a', 'opacity=".55"');
 		for (const [dx, dy] of [[-27, -8], [-19, 15], [-29, 4]]) s += c(cx2 + dx, cy2 + dy, 2.6, '#ff7ad9', 'opacity=".8"') + sparkle(cx2 + dx, cy2 + dy, 0.5, '#fff');
 		s += el(cx2 - 21, cy2 - 21, 6, 3.5, '#8fb8ff') + c(cx2 - 24, cy2 - 24, 2.2, '#8fb8ff') + T(cx2 - 13, cy2 - 25, 'z', { size: 5.5, weight: 800, fill: '#fff', halo: false });
-		s += treeM(cx2 - 23, cy2 + 23, 0.6, '#5fd3b8', '#a7f3d0');
 	}
 
-	// ------ rotas (tan) com mato alto, e os números
+	// ------ rotas: trilhas de terra com mato alto dos lados
 	let rd = '';
 	for (const [, pts] of ROUTES) rd += 'M ' + pts.map((p) => `${p[0]} ${p[1]}`).join(' L ') + ' ';
-	s += pth(rd, 'none', `stroke="#3f2b1d" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"`) + pth(rd, 'none', `stroke="#9bc77e" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"`) + pth(rd, 'none', `stroke="#d9c49a" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"`);
-	for (const [, pts] of ROUTES) for (let i = 0; i < pts.length - 1; i++) { const [x0, y0] = pts[i], [x1, y1] = pts[i + 1], len = Math.hypot(x1 - x0, y1 - y0); for (let t = 14; t < len - 10; t += 16) { const x = x0 + ((x1 - x0) * t) / len, y = y0 + ((y1 - y0) * t) / len, side = (Math.floor(t / 16) % 2) * 2 - 1, nx = ((y1 - y0) / len) * 7 * side, ny = (-(x1 - x0) / len) * 7 * side; s += c(x + nx, y + ny, 3.2, '#4f9c55') + c(x + nx + 2.4, y + ny + 1.5, 2.4, '#5fae5a'); } }
-	// Expresso Astral: trilho sobre o mar com pilares
+	s += pth(rd, 'none', `stroke="#5e4432" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"`) + pth(rd, 'none', `stroke="#e6d3a6" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round"`) + pth(rd, 'none', `stroke="#c9b383" stroke-width="1" stroke-dasharray="2 4" stroke-linecap="round"`);
+	for (const [, pts] of ROUTES) for (let i = 0; i < pts.length - 1; i++) { const [x0, y0] = pts[i], [x1, y1] = pts[i + 1], len = Math.hypot(x1 - x0, y1 - y0); for (let t = 12; t < len - 10; t += 15) { const x = x0 + ((x1 - x0) * t) / len, y = y0 + ((y1 - y0) * t) / len, side = (Math.floor(t / 15) % 2) * 2 - 1, nx = ((y1 - y0) / len) * 7.5 * side, ny = (-(x1 - x0) / len) * 7.5 * side; s += c(x + nx, y + ny, 3, '#4f9c55') + c(x + nx + 2.2, y + ny + 1.4, 2.2, '#5fae5a'); } }
+	s += r(372, 116, 14, 9, '#8a5a2b', 'transform="rotate(14 379 120)" stroke="#5e4432" stroke-width=".8"'); // ponte do Vale do Fim
+	// Expresso Astral: trilho sobre a baía
 	const railD = 'M ' + RAIL.map((p) => `${p[0]} ${p[1]}`).join(' L ');
 	for (let i = 0; i < RAIL.length - 1; i++) { const [x0, y0] = RAIL[i], [x1, y1] = RAIL[i + 1], len = Math.hypot(x1 - x0, y1 - y0); for (let t = 10; t < len; t += 18) s += r(x0 + ((x1 - x0) * t) / len - 1.5, y0 + ((y1 - y0) * t) / len, 3, 8, '#4a3a2c'); }
 	s += pth(railD, 'none', `stroke="${C.deck}" stroke-width="6"`) + pth(railD, 'none', `stroke="${C.tie}" stroke-width="6" stroke-dasharray="1.6 3.4"`) + pth(railD, 'none', `stroke="${C.rail}" stroke-width="1"`);
 	s += `<g transform="translate(866 352) rotate(-65)">${r(-9, -4.5, 18, 9, '#2a1b55', `rx="2" stroke="${C.gold}" stroke-width="1"`)}${r(-6, -2.5, 4, 3, '#fde68a')}${r(0, -2.5, 4, 3, '#fde68a')}${c(-12, 0, 1.6, '#fff')}</g>`;
-	// balsa opcional Farol → Ilha do Navio
 	s += pth('M 332 566 Q 300 600 292 626', 'none', 'stroke="#eaf6ff" stroke-width="1.4" stroke-dasharray="4 3"');
-
-	// ------ cidades
-	const [vx, vy] = CITY.vila;
-	for (const [dx, dy, roof] of [[-12, -6, '#d9412f'], [4, -12, '#2d9bf0'], [16, -2, '#d9412f'], [-4, 8, '#f2c230'], [10, 12, '#2d9bf0']]) s += houseM(vx + dx, vy + dy, 11, 9, roof);
-	s += r(vx - 28, vy + 4, 18, 13, '#f8fafc', 'rx="1.5" stroke="#94a3b8" stroke-width="1"') + r(vx - 26, vy + 6, 14, 4, '#60a5fa') + c(vx - 14, vy - 2, 1.4, '#ef4444');
-
-	const [fx, fy] = CITY.farol;
-	s += `<g transform="rotate(90 ${fx} ${fy})">` + pth(`M ${fx - 34} ${fy + 14} Q ${fx} ${fy + 44} ${fx + 34} ${fy + 14} Z`, C.sea) + r(fx - 30, fy + 12, 60, 4, '#a9865e') + r(fx - 8, fy + 14, 3.5, 18, '#a9865e') + r(fx + 12, fy + 14, 3.5, 14, '#a9865e');
-	s += shipM(fx + 2, fy + 32, 0.9) + shipM(fx + 26, fy + 28, 0.75, '#ef4444');
-	for (const [dx, dy, roof] of [[-34, -6, '#2d9bf0'], [-20, -14, '#d9412f'], [-6, -4, '#f2c230'], [10, -14, '#2d9bf0'], [24, -4, '#d9412f']]) s += houseM(fx + dx, fy + dy, 11, 8, roof);
-	s += r(fx + 40, fy - 6, 4, 18, '#f3f4f6') + r(fx + 40, fy - 2, 4, 4, '#ef4444') + r(fx + 40, fy + 6, 4, 4, '#ef4444') + c(fx + 42, fy - 8, 2.6, '#fde68a') + c(fx + 42, fy - 8, 8, '#fde68a', 'opacity=".25"');
-	s += '</g>' + gymM(fx + 2, fy - 44, TYPE.agua);
-
-	const [cx, cy] = CITY.capsule;
-	s += r(cx - 56, cy - 36, 112, 72, '#dfe4ea', 'rx="8" stroke="#8c97a6" stroke-width="1.5"');
-	for (const [dx, dy, rad, col] of [[-30, -12, 14, '#f3f4f6'], [4, -14, 11, '#f3f4f6'], [30, -10, 9, '#f3f4f6'], [-26, 16, 10, '#f3f4f6'], [20, 16, 13, '#f3f4f6']]) s += c(cx + dx, cy + dy, rad, col, 'stroke="#8c97a6" stroke-width="1"') + c(cx + dx, cy + dy, rad * 0.55, '#fde68a', 'opacity=".9"') + r(cx + dx - 2, cy + dy - rad - 4, 4, 5, '#8c97a6');
-	s += T(cx, cy - 26, 'CAPSULE CORP.', { size: 5.5, weight: 800, anchor: 'middle', fill: '#1f2937', halo: false, ls: 0.8 });
-	s += r(cx - 8, cy - 1, 16, 16, '#f4e7c3', 'stroke="#3f3f46" stroke-width="1"'); // ringue
-	s += gymM(cx + 44, cy + 24, TYPE.martial);
-
-	const [dx0, dy0] = CITY.dunas;
-	for (const [dx, dy, w] of [[-28, -8, 12], [-10, -16, 10], [8, -8, 12], [-20, 10, 10], [4, 12, 12], [24, 2, 10]]) s += c(dx0 + dx, dy0 + dy, w / 2, '#c9a56a', 'stroke="#8a6a3a" stroke-width="1"') + c(dx0 + dx, dy0 + dy, 1.8, '#5a3d1e');
-	s += c(dx0 + 30, dy0 - 18, 9, '#e3c98a', 'stroke="#8a6a3a" stroke-width="1"') + c(dx0 + 30, dy0 - 18, 4, '#b45309'); // domo do Kazekage
-	for (let i = 0; i < 3; i++) s += pth(`M ${dx0 - 40 + i * 30} ${dy0 + 30} q 15 -8 30 0`, 'none', 'stroke="#d8c184" stroke-width="1.6"');
-	s += gymM(dx0 - 42, dy0 - 20, TYPE.vento);
-
-	const [gx, gy] = CITY.glicinias;
-	for (const [dx, dy] of [[-30, 14], [-18, 24], [-4, 28], [12, 26], [26, 18]]) s += c(gx + dx, gy + dy, 6, '#b388ff', 'opacity=".85"') + c(gx + dx + 2, gy + dy - 3, 3.5, '#d9c2ff');
-	for (const [dx, dy] of [[-14, -8], [2, -14], [18, -6], [-2, 4]]) s += houseM(gx + dx, gy + dy, 11, 8, '#4a3a2c', '#efe4cc');
-	s += toriiM(gx - 30, gy - 10, 1) + gymM(gx + 34, gy - 4, TYPE.fogo);
-
-	const [ax, ay] = CITY.aurea;
-	for (const [dx, dy, roof] of [[-36, 4, '#f59e0b'], [-24, -6, '#fb7185'], [-10, 6, '#fde68a'], [4, -6, '#fb923c'], [18, 6, '#f59e0b'], [32, -4, '#fb7185']]) s += houseM(ax + dx, ay + dy, 11, 12, '#b45309', roof);
-	s += c(ax + 2, ay + 26, 12, '#e9ddc5', 'stroke="#a89c86" stroke-width="1.2"') + c(ax + 2, ay + 26, 7, 'none', 'stroke="#a89c86" stroke-width="1.2"') + star(ax + 2, ay + 26, 4, 1.6, 5, C.gold); // praça com a seta
-	s += pth(`M ${ax - 44} ${ay - 16} L ${ax + 44} ${ay - 16}`, 'none', `stroke="${C.rockEdge}" stroke-width="2"`) + gymM(ax + 46, ay + 14, TYPE.terra);
-
-	const [px, py] = CITY.portoes;
-	s += r(px - 50, py - 36, 100, 72, '#cfd6de', 'rx="5" stroke="#8c97a6" stroke-width="1.5"');
-	const rr4 = rng(21);
-	for (let gx2 = -44; gx2 <= 30; gx2 += 18) for (let gy2 = -30; gy2 <= 18; gy2 += 16) s += r(px + gx2, py + gy2, 10 + rr4() * 6, 8 + rr4() * 6, ['#64748b', '#94a3b8', '#475569'][Math.floor(rr4() * 3)], 'rx="1"');
-	for (const [dx, dy, sc] of [[36, -22, 1.1], [-30, 26, 0.9], [20, 20, 1], [-6, -4, 0.8]]) s += gateM(px + dx, py + dy, sc);
-	s += pth(blob(SUB.masmorra[0], SUB.masmorra[1], 11, 1.5, 3.3), '#101522', 'stroke="#7a86c9" stroke-width="1.2"') + gateM(SUB.masmorra[0], SUB.masmorra[1], 0.9); // Masmorra Dupla
-	s += gymM(px - 42, py - 26, TYPE.sombra);
-
-	const [sx, sy] = CITY.astral;
-	s += c(sx, sy, 40, '#1b1740', 'opacity=".55"') + el(sx, sy + 2, 30, 20, '#2a2553', 'stroke="#9fa8ff" stroke-width="1.5"') + el(sx, sy + 2, 30, 20, 'none', 'stroke="#fff" stroke-width=".6" stroke-dasharray="2 3"');
-	s += el(sx, sy - 4, 16, 9, '#3b3580', 'stroke="#c7cbff" stroke-width="1"') + c(sx, sy - 6, 6, '#fde68a') + c(sx, sy - 6, 3, '#fff');
-	for (const [dx, dy] of [[-22, -2], [22, -2], [0, 12]]) s += c(sx + dx, sy + dy, 3, '#9fa8ff', 'stroke="#fff" stroke-width=".8"');
-	const rr5 = rng(31);
-	for (let i = 0; i < 26; i++) { const a = rr5() * 360, d = 44 + rr5() * 40; s += c(sx + d * Math.cos(a * deg), sy + d * Math.sin(a * deg) * 0.8, 0.6 + rr5(), '#fff', `opacity="${0.4 + rr5() * 0.5}"`); }
-	s += gymM(sx + 24, sy + 14, TYPE.raio);
-
-	const [mx, my] = CITY.amald;
-	s += r(mx - 46, my - 34, 92, 68, '#4a3f66', 'rx="5" stroke="#2a2340" stroke-width="1.5"');
-	for (let gx3 = -40; gx3 <= 28; gx3 += 17) for (let gy3 = -28; gy3 <= 16; gy3 += 15) { if (Math.abs(gx3 + 6) < 12 && Math.abs(gy3 + 6) < 12) continue; s += r(mx + gx3, my + gy3, 11, 9, ['#6b5f8a', '#857aa6', '#5a4f7a'][(gx3 + gy3) % 3 ? 1 : 0], 'rx="1"'); }
-	s += r(mx - 10, my - 10, 14, 14, '#9ca3af') + ln(mx - 10, my - 10, mx + 4, my + 4, '#fff', 1) + ln(mx + 4, my - 10, mx - 10, my + 4, '#fff', 1); // cruzamento de Shibuya
-	s += r(mx + 20, my - 30, 22, 12, '#f3e9d2', 'stroke="#7c2d12" stroke-width="1"') + pth(`M ${mx + 18} ${my - 30} L ${mx + 31} ${my - 38} L ${mx + 44} ${my - 30} Z`, '#7c2d12') + toriiM(mx + 31, my - 12, 0.8); // escola/templo
-	s += c(mx - 30, my + 20, 9, 'url(#gDark)') + c(mx - 30, my + 20, 6, '#0b0612', 'stroke="#c4a5ff" stroke-width="1"') + c(mx - 30, my + 20, 1.8, '#fff'); // cúpula
-	s += gymM(mx + 36, my + 22, TYPE.onirico);
-
-	const [lx, ly] = CITY.liga;
-	s += c(lx, ly, 30, '#d6ceb9', 'stroke="#a99f88" stroke-width="1.5"') + poly([[lx, ly - 24], [lx + 14, ly + 8], [lx + 7, ly + 16], [lx - 7, ly + 16], [lx - 14, ly + 8]], '#b91c1c', `stroke="${C.gold}" stroke-width="2"`) + star(lx, ly + 2, 7, 3, 5, C.gold);
-	for (const [dx, dy] of [[-22, -18], [22, -18], [-22, 20], [22, 20]]) s += houseM(lx + dx, ly + dy, 9, 7, '#7c2d12', '#f7f1e3');
-	s += pth(`M ${SUB.caverna[0] - 10} ${SUB.caverna[1] + 8} A 10 9 0 0 1 ${SUB.caverna[0] + 10} ${SUB.caverna[1] + 8} Z`, '#1d140e') + r(SUB.caverna[0] - 12, SUB.caverna[1] + 4, 3, 6, '#8a5a2b') + r(SUB.caverna[0] + 9, SUB.caverna[1] + 4, 3, 6, '#8a5a2b');
+	s += pth('M 124 404 Q 96 412 74 424', 'none', 'stroke="#eaf6ff" stroke-width="1.4" stroke-dasharray="4 3"');
 
 	// grade
 	let gl = '';
 	for (let x = 50; x < WW; x += 50) gl += `M ${x} 0 V ${WH} `;
 	for (let y = 50; y < WH; y += 50) gl += `M 0 ${y} H ${WW} `;
-	s += pth(gl, 'none', 'stroke="#ffffff" stroke-width=".5" opacity=".08"');
+	s += pth(gl, 'none', 'stroke="#ffffff" stroke-width=".5" opacity=".06"');
 	return s;
 }
+
 
 // ------------------------------------------------------------------ labels (px)
 const SERIES = {
@@ -304,12 +470,13 @@ function drawMapLabels() {
 	s += regLabel('amald', X(872), Y(410));
 	s += regLabel('liga', X(608), Y(312));
 	const small = (x, y, t, o = {}) => (s += T(X(x), Y(y), t, { size: 10.5, weight: 700, anchor: 'middle', ...o }));
-	small(446, 612, 'Lago Espelhado', { anchor: 'start' }); small(300, 510, 'Floresta das Lanternas'); small(244, 324, 'Círculo de Pedra', { anchor: 'start' }); small(232, 252, 'Oásis'); small(190, 108, 'DESERTO DE VIDRO', { size: 11, fill: '#5a3d1e', halo: false, ls: 1.5 });
-	small(320, 150, 'Penhasco dos Cata-ventos'); small(450, 200, 'MONTE NEVADO', { size: 11, fill: '#334155', halo: false, ls: 1.5 }); small(616, 150, 'Vulcão Adormecido'); small(690, 40, 'Costa de Pedra'); small(964, 100, 'Masmorra Dupla'); small(790, 294, 'Caminho da Vitória (caverna)');
-	small(280, 666, 'Ilha do Navio'); small(828, 348, 'Expresso Astral (R12)', { anchor: 'end' }); small(664, 166, 'SERRA DO MEIO', { size: 11, fill: '#efe6da', ls: 2 });
+	small(446, 612, 'Lago Espelhado', { anchor: 'start' }); small(300, 506, 'Floresta das Lanternas'); small(222, 324, 'Círculo de Pedra', { anchor: 'start' }); small(232, 254, 'Oásis'); small(186, 104, 'DESERTO DE VIDRO', { size: 11, fill: '#5a3d1e', halo: false, ls: 1.5 });
+	small(160, 356, 'ERMOS ROCHOSOS', { size: 10.5, fill: '#5a3d1e', halo: false, ls: 1.2 }); small(270, 398, 'ringue do torneio', { size: 9.5 }); small(62, 452, 'Casa do Kame', { size: 9.5 });
+	small(330, 150, 'Vale do Fim'); small(470, 64, 'MONTE KAMADO', { size: 11, fill: '#334155', halo: false, ls: 1.5 }); small(520, 172, 'Monte Natagumo', { size: 9.5 }); small(488, 84, 'cabana', { size: 9 });
+	small(728, 192, 'Coliseu', { size: 9.5 }); small(650, 66, 'Costa de Pedra', { anchor: 'end' }); small(964, 148, 'Masmorra Dupla'); small(1036, 98, 'Ilha de Jeju', { size: 9.5 }); small(940, 262, 'Rio Han', { size: 9.5, fill: '#dbeafe' }); small(790, 294, 'Caminho da Vitória (caverna)');
+	small(280, 666, 'Ilha do Navio'); small(828, 348, 'Expresso Astral (R12)', { anchor: 'end' }); small(700, 330, 'SERRA DO MEIO', { size: 11, fill: '#efe6da', ls: 2 });
 	small(700, 646, 'MUNDO DOS SONHOS', { size: 11, fill: '#ffd0f0', ls: 1 }); small(700, 658, 'Ilha Crescente · entra dormindo', { size: 9, fill: '#ffd0f0' });
-	small(172, 208, 'vila de areia', { size: 9.5 }); 
-	small(946, 318, 'escola · cruzamento · cúpula', { size: 9.5 }); small(906, 148, 'portões azuis', { size: 9.5 }); small(800, 478, 'ilha flutuante', { size: 9.5 }); small(778, 160, 'praça da seta', { size: 9.5 });
+	small(898, 290, 'Escola Jujutsu', { size: 9.5 }); small(946, 400, 'Shibuya', { size: 9.5, fill: '#f5d0fe' }); small(596, 236, 'mansão das borboletas', { size: 9 });
 	// números das rotas
 	for (const [n, pts] of ROUTES) { const a = pts[0], b = pts[pts.length - 1], mid = pts.length === 3 ? pts[1] : [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2]; s += c(X(mid[0]), Y(mid[1]), 11, '#fff7d6', `stroke="${C.navy}" stroke-width="1.6"`) + T(X(mid[0]), Y(mid[1]) + 4, 'R' + n, { size: 10, weight: 800, anchor: 'middle', fill: C.navy, halo: false }); }
 	s += c(X(866), Y(352), 11, '#fff7d6', `stroke="${C.navy}" stroke-width="1.6"`) + T(X(866), Y(352) + 4, 'R12', { size: 10, weight: 800, anchor: 'middle', fill: C.navy, halo: false });
@@ -389,8 +556,8 @@ function vCapital() {
 function vVulcao() {
 	let s = r(0, 0, VW, VH, 'url(#skyEve)');
 	s += poly([[230, 124], [290, 40], [343, 110]], '#b7c3cc') + poly([[282, 56], [290, 40], [300, 56]], '#fff');
-	s += poly([[110, 124], [170, 30], [196, 30], [262, 124]], '#5e5044') + poly([[150, 60], [170, 30], [196, 30], [214, 60], [196, 54], [182, 62], [168, 54]], '#ff6a2b') + c(183, 18, 14, 'rgba(255,255,255,.35)') + c(200, 6, 10, 'rgba(255,255,255,.3)');
-	s += pth('M 110 124 L 170 30 L 150 60 L 140 124 Z', 'rgba(0,0,0,.2)');
+	s += poly([[110, 124], [176, 26], [262, 124]], '#9aa8b4') + poly([[146, 70], [176, 26], [206, 70], [192, 62], [180, 72], [166, 62]], '#ffffff') + r(196, 92, 18, 12, '#4a3a2c') + poly([[192, 92], [205, 84], [218, 92]], '#3a2c20') + c(212, 80, 4, 'rgba(255,255,255,.45)') + c(216, 72, 3, 'rgba(255,255,255,.35)');
+	s += pth('M 110 124 L 176 26 L 156 70 L 146 124 Z', 'rgba(0,0,0,.15)');
 	s += ground(124, '#6c9a4e', '#587f40');
 	for (const [x, y, sc] of [[40, 124, 1.2], [300, 124, 1.1]]) { s += r(x - 2.5 * sc, y - 34 * sc, 5 * sc, 34 * sc, '#6b4a2b'); for (let i = 0; i < 9; i++) { const a = (i / 9) * 360; s += el(x + 22 * sc * Math.cos(a * deg), y - 34 * sc + 10 * sc * Math.sin(a * deg), 9 * sc, 6 * sc, '#b388ff') + el(x + 22 * sc * Math.cos(a * deg) + 2, y - 34 * sc + 10 * sc * Math.sin(a * deg) + 6, 3 * sc, 8 * sc, '#d9c2ff', 'opacity=".9"'); } }
 	s += toriiM(120, 124, 2.4) + houseV(260, 124, 34, 22, '#4a3a2c', '#efe4cc');
@@ -577,7 +744,7 @@ function vRotas() {
 	s += avatar(172, 150, 0.9, '#ef4444', '#1f2937') + T(172, 22, 'CAVERNA', { size: 10, weight: 800, anchor: 'middle', fill: '#fff', halo: false, ls: 1 });
 	s += r(229, 0, 114, VH, 'url(#skyDay)') + poly([[229, 124], [260, 60], [290, 90], [320, 44], [343, 80], [343, 124]], '#b7c3cc') + poly([[250, 80], [260, 60], [272, 78]], '#fff') + poly([[308, 68], [320, 44], [334, 68]], '#fff') + r(229, 124, 114, 42, '#eef3f6');
 	for (let i = 0; i < 12; i++) s += c(235 + (i * 29) % 108, 10 + (i * 47) % 110, 1.4, '#fff', 'opacity=".8"');
-	s += avatar(286, 150, 0.9, '#f97316', '#3f3f46', { hat: 'miner' }) + T(286, 22, 'MONTE NEVADO', { size: 10, weight: 800, anchor: 'middle', fill: '#1f2937', halo: false, ls: 1 });
+	s += avatar(286, 150, 0.9, '#f97316', '#3f3f46', { hat: 'miner' }) + T(286, 22, 'MONTE KAMADO', { size: 10, weight: 800, anchor: 'middle', fill: '#1f2937', halo: false, ls: 1 });
 	for (const x of [114, 229]) s += ln(x, 0, x, VH, '#0c2645', 2);
 	return s;
 }
@@ -589,16 +756,16 @@ function crystalV(x, y, s, col, light) {
 // ------------------------------------------------------------------ right panel
 const CARDS = [
 	[1, 'normal', 'VILA VERDEJANTE', 'início · campo', vVerde, ['Casa do jogador e laboratório da Mina, que', 'dá o Eco inicial. R1 passa pelo Mato Alto e', 'pelo Lago Espelhado até a primeira cidade.']],
-	[2, 'agua', 'CIDADE FAROL', 'One Piece · ginásio 1 · Maré', vPorto, ['Porto com farol, taverna e navios. Balsa', 'opcional pra Ilha do Navio (naufrágio com', 'tesouro). Fighter de referência: Luffy.']],
-	[3, 'martial', 'CAPSULE CITY', 'Dragon Ball · ginásio 2 · Arena', vCapsule, ['Cidade 3: domos da Capsule Corp., carros-', 'cápsula e o ringue do torneio no centro.', 'Chega pela Floresta das Lanternas (R3–R4).']],
-	[4, 'vento', 'CIDADE DAS DUNAS', 'Naruto · ginásio 3 · Brisa', vDunas, ['Vila da Areia no Deserto de Vidro: casas de', 'barro, oásis e tempestades de areia na R6.', 'Fighter de referência: Gaara.']],
-	[5, 'fogo', 'VILA DAS GLICÍNIAS', 'Demon Slayer · ginásio 4 · Brasa', vVulcao, ['Vem do Penhasco e do Monte Nevado (R7–R9)', 'até o pé do Vulcão Adormecido, com glicínias', 'e espadachins. Fighter de referência: Tanjiro.']],
-	[6, 'terra', 'CIDADE ÁUREA', 'JoJo · ginásio 5 · Rocha', vAurea, ['Cidade costeira de casas coloridas sobre a', 'Costa de Pedra, praça da seta e Stands.', 'Fighter de referência: Giorno.']],
-	[7, 'sombra', 'CIDADE DOS PORTÕES', 'Solo Leveling · ginásio 6 · Penumbra', vPortoes, ['Metrópole com portões azuis que abrem', 'masmorras; a Masmorra Dupla fica ao norte.', 'Fighter: Sung Jin-Woo (já está no jogo).']],
-	[8, 'raio', 'ESTAÇÃO ASTRAL', 'Star Rail · ginásio 7 · Trovão', vAstral, ['Ilha flutuante no mar do noroeste, só se', 'chega pelo Expresso Astral (R12, trem sobre', 'o mar). Fighter de referência: Trailblazer.']],
-	[9, 'onirico', 'CIDADE AMALDIÇOADA', 'Jujutsu Kaisen · ginásio 8 · Sonho', vTemplo, ['Escola de feiticeiros, cruzamento e a cúpula', 'da Expansão de Domínio. Dormindo aqui, abre', 'o Mundo dos Sonhos. Fighter: Gojo (no jogo).']],
+	[2, 'agua', 'CIDADE FAROL', 'One Piece · ginásio 1 · Maré', vPorto, ['Praia tropical com coqueiros, cais, farol e', 'navios piratas. Balsa pra Ilha do Navio', '(naufrágio). Fighter de referência: Luffy.']],
+	[3, 'martial', 'CAPSULE CITY', 'Dragon Ball · ginásio 2 · Arena', vCapsule, ['Cidade 3: domos da Capsule Corp. e o ringue', 'do torneio. Ao norte, ermos com pilares de', 'pedra e esferas. Casa do Kame numa ilhota.']],
+	[4, 'vento', 'CIDADE DAS DUNAS', 'Naruto · ginásio 3 · Brisa', vDunas, ['Vila da Areia murada no Deserto de Vidro,', 'com oásis. Saindo pela R7 está o Vale do Fim,', 'com as duas estátuas. Fighter: Gaara.']],
+	[5, 'fogo', 'VILA DAS GLICÍNIAS', 'Demon Slayer · ginásio 4 · Brasa', vVulcao, ['Vem pelo Monte Kamado (neve, cabana de', 'carvão) e pela teia do Monte Natagumo até o', 'vale das glicínias. Fighter: Tanjiro.']],
+	[6, 'terra', 'CIDADE ÁUREA', 'JoJo · ginásio 5 · Rocha', vAurea, ['Cidade italiana de telhados de terracota,', 'Coliseu, gôndolas, ciprestes e limoeiros.', 'Praça da Flecha. Fighter: Giorno.']],
+	[7, 'sombra', 'CIDADE DOS PORTÕES', 'Solo Leveling · ginásio 6 · Penumbra', vPortoes, ['Seul: arranha-céus, Rio Han, portões azuis', 'e um vermelho, Masmorra Dupla ao norte e', 'Ilha de Jeju. Fighter: Sung Jin-Woo (no jogo).']],
+	[8, 'raio', 'ESTAÇÃO ASTRAL', 'Star Rail · ginásio 7 · Trovão', vAstral, ['Estação espacial flutuando na baía, só se', 'chega pelo Expresso Astral (R12, trem sobre', 'a baía). Fighter de referência: Trailblazer.']],
+	[9, 'onirico', 'CIDADE AMALDIÇOADA', 'Jujutsu Kaisen · ginásio 8 · Sonho', vTemplo, ['Shibuya sob névoa roxa, maldições à solta,', 'Escola Jujutsu na mata e a cúpula do domínio.', 'Abre o Mundo dos Sonhos. Fighter: Gojo.']],
 	[10, 'martial', 'LIGA DOS VANGUARDAS', 'final · Serra do Meio', vCapital, ['Torre dos Vanguardas no centro do continente,', 'cercada pela serra. Só entra com 8 insígnias,', 'pela caverna do Caminho da Vitória (R14).']],
-	[11, 'terra', 'SUB-LUGARES DAS ROTAS', 'floresta · caverna · neve', vRotas, ['Entre uma cidade e outra sempre tem um lugar', 'com Ecos próprios: Floresta das Lanternas,', 'Caminho da Vitória, Monte Nevado, deserto.']],
+	[11, 'terra', 'SUB-LUGARES DAS ROTAS', 'floresta · caverna · neve', vRotas, ['Entre uma cidade e outra sempre tem um lugar', 'com Ecos próprios: Floresta das Lanternas,', 'Vale do Fim, Monte Kamado, Caminho da Vitória.']],
 	[12, 'onirico', 'MUNDO DOS SONHOS', 'dimensão à parte', vSonhos, ['Ilhas flutuantes com Sonecão e Ecos que só', 'aparecem lá. Entra dormindo na Cidade', 'Amaldiçoada. Acorda ao levar dano.']],
 ];
 const PX = 1666, PW = 1114, CW = 359, CH = 300, GAP = 18, PY = 146;
@@ -632,14 +799,14 @@ function insetTable() {
 	['#', 'Cidade (ginásio)', 'Série', 'Bioma / chegada', 'Tipo · insígnia', 'Fighter'].forEach((h, i) => (s += T(x0 + cols[i], IY + 50, h, { size: 12, weight: 800, fill: C.dim, halo: false, ls: 1 })));
 	s += ln(x0 + 14, IY + 57, x0 + w - 14, IY + 57, C.panelEdge, 1.2);
 	const rows = [
-		[2, 'Cidade Farol (1)', 'One Piece', 'porto, praia, ilha', 'agua', 'Maré', 'Luffy'],
-		[3, 'Capsule City (2)', 'Dragon Ball', 'cidade tech, após a floresta', 'martial', 'Arena', 'Goku'],
-		[4, 'Cidade das Dunas (3)', 'Naruto', 'deserto, oásis', 'vento', 'Brisa', 'Gaara'],
-		[5, 'Vila das Glicínias (4)', 'Demon Slayer', 'neve → vulcão', 'fogo', 'Brasa', 'Tanjiro'],
-		[6, 'Cidade Áurea (5)', 'JoJo', 'costa de pedra, casas coloridas', 'terra', 'Rocha', 'Giorno'],
-		[7, 'Cidade dos Portões (6)', 'Solo Leveling ✓', 'metrópole, masmorras', 'sombra', 'Penumbra', 'Sung Jin-Woo ✓'],
+		[2, 'Cidade Farol (1)', 'One Piece', 'praia tropical, navios', 'agua', 'Maré', 'Luffy'],
+		[3, 'Capsule City (2)', 'Dragon Ball', 'domos + ermos rochosos', 'martial', 'Arena', 'Goku'],
+		[4, 'Cidade das Dunas (3)', 'Naruto', 'deserto + Vale do Fim', 'vento', 'Brisa', 'Gaara'],
+		[5, 'Vila das Glicínias (4)', 'Demon Slayer', 'neve → glicínias', 'fogo', 'Brasa', 'Tanjiro'],
+		[6, 'Cidade Áurea (5)', 'JoJo', 'costa italiana, Coliseu', 'terra', 'Rocha', 'Giorno'],
+		[7, 'Cidade dos Portões (6)', 'Solo Leveling ✓', 'Seul, Rio Han, Jeju', 'sombra', 'Penumbra', 'Sung Jin-Woo ✓'],
 		[8, 'Estação Astral (7)', 'Star Rail', 'ilha flutuante, trem no mar', 'raio', 'Trovão', 'Trailblazer'],
-		[9, 'Cidade Amaldiçoada (8)', 'Jujutsu Kaisen ✓', 'cidade noturna, templo', 'onirico', 'Sonho', 'Gojo Satoru ✓'],
+		[9, 'Cidade Amaldiçoada (8)', 'Jujutsu Kaisen ✓', 'Shibuya + Escola Jujutsu', 'onirico', 'Sonho', 'Gojo Satoru ✓'],
 	];
 	rows.forEach(([n, city, serie, bioma, type, ins, fighter], i) => {
 		const y = IY + 80 + i * 24;
@@ -656,7 +823,7 @@ function insetTable() {
 function insetLine() {
 	const x0 = MX + 866 + 14, w = 384;
 	let s = frame(x0, IY, w, IH, 'LINHA DA AVENTURA');
-	const stops = [['Vila Verdejante', 'normal', 1, 'R1 · R2'], ['Cidade Farol', 'agua', 2, 'R3 · Floresta · R4'], ['Capsule City', 'martial', 3, 'R5 · Círculo · R6 deserto'], ['Cidade das Dunas', 'vento', 4, 'R7 · Penhasco · R8 · Neve · R9'], ['Vila das Glicínias', 'fogo', 5, 'R10 · Costa de Pedra'], ['Cidade Áurea', 'terra', 6, 'R11'], ['Cidade dos Portões', 'sombra', 7, 'R12 trem (ida e volta)'], ['Estação Astral', 'raio', 8, 'R13'], ['Cidade Amaldiçoada', 'onirico', 9, 'R14 · Caverna'], ['Liga dos Vanguardas', 'martial', 10, '']];
+	const stops = [['Vila Verdejante', 'normal', 1, 'R1 · R2'], ['Cidade Farol', 'agua', 2, 'R3 · Floresta · R4'], ['Capsule City', 'martial', 3, 'R5 · Círculo · R6 deserto'], ['Cidade das Dunas', 'vento', 4, 'R7 · Vale do Fim · R8 · Kamado · R9'], ['Vila das Glicínias', 'fogo', 5, 'R10 · Costa de Pedra'], ['Cidade Áurea', 'terra', 6, 'R11'], ['Cidade dos Portões', 'sombra', 7, 'R12 trem (ida e volta)'], ['Estação Astral', 'raio', 8, 'R13'], ['Cidade Amaldiçoada', 'onirico', 9, 'R14 · Caverna'], ['Liga dos Vanguardas', 'martial', 10, '']];
 	s += ln(x0 + 30, IY + 50, x0 + 30, IY + 50 + 9 * 23, C.dim, 3);
 	stops.forEach(([t, type, n, rt], i) => {
 		const y = IY + 54 + i * 23;
