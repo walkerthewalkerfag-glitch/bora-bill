@@ -1,39 +1,42 @@
-# Mapa do continente: Pocket Vanguards
+# Mapa da região: Pocket Vanguards
 
-![Mapa do continente](continente-pocket-vanguards.png)
+![Mapa da região](continente-pocket-vanguards.png)
 
-Continente do Pocket Vanguards visto de cima, no mesmo enquadramento do blueprint do simulador: mapa à esquerda, um desenho de referência por região à direita e os quadros de apoio embaixo. Cada região é o mundo de uma série e guarda uma insígnia. A aventura começa na Ilha Verdejante e termina na Torre dos Vanguardas, no meio do continente.
+Região do Pocket Vanguards vista de cima, no estilo Pokémon Brick Bronze: você sai da Vila Verdejante e segue R1, R2, R3… Cada cidade é o mundo de uma série e guarda um ginásio. Entre uma cidade e outra tem um sub-lugar com Ecos próprios (lago, floresta, círculo de pedra, deserto, penhasco, montanha de neve, costa de pedra, masmorra, caverna, ilha) e um bioma diferente. O enquadramento é o mesmo do blueprint do simulador: mapa à esquerda, um desenho por lugar à direita, tabela "qual é qual", linha da aventura e símbolos embaixo.
 
-## Qual é qual
+Todos os nomes de cidade são provisórios. JoJo, Star Rail, Dragon Ball (Capsule City = cidade 3) e Naruto foram citados por você; Jujutsu Kaisen e Solo Leveling já estão no jogo; Demon Slayer e One Piece são sugestão para fechar os 8 ginásios.
 
-| # | Região | Série | Tipo | Insígnia | Fighter de referência |
-|---|---|---|---|---|---|
-| 1 | Ilha Verdejante | início (sem série) | Normal | — | — |
-| 2 | Capital Encruzilhada | hub · Liga dos Vanguardas | — | Liga final | — |
-| 3 | Vulcão Adormecido | Demon Slayer | Fogo | Brasa | Tanjiro |
-| 4 | Porto do Farol | One Piece | Água | Maré | Luffy |
-| 5 | Cidade dos Heróis | My Hero Academia | Raio | Trovão | Deku |
-| 6 | Portões da Penumbra | Solo Leveling ✓ | Sombra | Penumbra | Sung Jin-Woo ✓ |
-| 7 | Muralhas do Norte | Attack on Titan | Terra | Rocha | Levi |
-| 8 | Penhasco dos Cata-ventos | Naruto | Vento | Brisa | Naruto |
-| 9 | Arena do Torneio | Dragon Ball | Martial | Arena | Goku |
-| 10 | Templo do Domínio | Jujutsu Kaisen ✓ | Onírico | Sonho | Gojo Satoru ✓ |
-| 11 | Mundo dos Sonhos | dimensão à parte | Onírico | — | — |
-| 12 | Trem Vanguarda e balsa | transporte | — | — | — |
+## Linha da aventura
 
-✓ = já existe no jogo (a Expansão de Domínio do Gojo e a ficha do Jin-Woo). As outras 6 séries são sugestão pelo tipo que combina com cada insígnia. Para trocar uma série, basta mudar o nome no `SERIES`, no `CARDS` e na tabela do `insetTable()` em `gerar_continente.mjs`; o desenho da região continua servindo.
+| # | Lugar | Série | Bioma | Tipo · insígnia | Fighter de referência | Chegada |
+|---|---|---|---|---|---|---|
+| 1 | Vila Verdejante | início | campo | Normal | — | Lab da Mina, Mato Alto |
+| — | Lago Espelhado | sub-lugar | lago | — | — | R1 → R2 |
+| 2 | Cidade Farol (ginásio 1) | One Piece | porto, praia | Água · Maré | Luffy | balsa opcional para a Ilha do Navio |
+| — | Floresta das Lanternas | sub-lugar | floresta escura | — | — | R3 → R4 |
+| 3 | Capsule City (ginásio 2) | Dragon Ball | cidade tech, domos da Capsule Corp., ringue | Martial · Arena | Goku | R4 |
+| — | Círculo de Pedra, Deserto de Vidro, Oásis | sub-lugares | deserto | — | — | R5 → R6 |
+| 4 | Cidade das Dunas (ginásio 3) | Naruto | vila de areia | Vento · Brisa | Gaara | R6 |
+| — | Penhasco dos Cata-ventos, Monte Nevado | sub-lugares | penhasco, neve | — | — | R7 → R8 → R9 |
+| 5 | Vila das Glicínias (ginásio 4) | Demon Slayer | pé do Vulcão Adormecido, glicínias | Fogo · Brasa | Tanjiro | R9 |
+| — | Costa de Pedra | sub-lugar | penhascos no mar | — | — | R10 |
+| 6 | Cidade Áurea (ginásio 5) | JoJo | cidade costeira colorida, praça da seta | Terra · Rocha | Giorno | R10 |
+| 7 | Cidade dos Portões (ginásio 6) | Solo Leveling ✓ | metrópole com portões azuis, Masmorra Dupla | Sombra · Penumbra | Sung Jin-Woo ✓ | R11 |
+| 8 | Estação Astral (ginásio 7) | Star Rail | ilha flutuante no mar | Raio · Trovão | Trailblazer | R12, Expresso Astral (trem sobre o mar, ida e volta) |
+| 9 | Cidade Amaldiçoada (ginásio 8) | Jujutsu Kaisen ✓ | cidade noturna, escola, cúpula do domínio | Onírico · Sonho | Gojo Satoru ✓ | R13 |
+| — | Mundo dos Sonhos | dimensão à parte | ilhas flutuantes | Onírico | — | dormindo na Cidade Amaldiçoada |
+| — | Caminho da Vitória | sub-lugar | caverna na Serra do Meio | — | — | R14, só com 8 insígnias |
+| 10 | Liga dos Vanguardas | final | Torre dos Vanguardas no centro | — | — | R14 |
 
-## Lugares do jogo que já estavam na HUD e na Ecodex
-
-Vila Verdejante, laboratório da Mina, Mato Alto, Lago Espelhado e Círculo de Pedra ficam na Ilha Verdejante. Floresta das Lanternas virou os Portões da Penumbra. Vulcão Adormecido, Penhasco dos Cata-ventos, Praia do Farol e Mundo dos Sonhos viraram regiões inteiras.
-
-## Ordem da aventura
-
-Ilha Verdejante (Lv 1–8) → Vulcão (Brasa) → Porto (Maré, de balsa) → Heróis (Trovão) → Portões (Penumbra) → Muralhas (Rocha) → Penhasco (Brisa) → Arena (Arena) → Templo (Sonho, Lv 50+, abre o Mundo dos Sonhos) → Capital (Liga). O Trem Vanguarda segue essa ordem no sentido horário, com 9 estações. As rotas R1 a R12 têm mato alto para encontros.
+Cada rota só abre depois do ginásio anterior. A Serra do Meio bloqueia o atalho até a Liga.
 
 ## Escala
 
-1 quadrado da grade = 50 unidades = 500 studs (é referência, não tamanho final). O continente inteiro dá uns 10,7 × 7,2 km.
+1 quadrado da grade = 50 unidades = 500 studs (referência, não tamanho final). A região inteira dá uns 10,7 × 7,2 km.
+
+## Trocar uma série ou um nome
+
+Está tudo em `gerar_continente.mjs`: nomes e séries em `SERIES` (rótulos do mapa), `CARDS` (cards da direita) e nas tabelas de `insetTable()` e `insetLine()`. As posições das cidades ficam em `CITY`, os sub-lugares em `SUB` e as rotas em `ROUTES`.
 
 ## Gerar de novo
 
